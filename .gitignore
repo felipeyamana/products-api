@@ -23,10 +23,22 @@ bld/
 [Ll]og/
 [Ll]ogs/
 
+# Ignore the entire wwwroot folder
+**/wwwroot/
+
+/src/AngularApp/wwwroot/
+
+# Ignore PublishProfiles and ServiceDependencies inside Properties
+**/PublishProfiles/
+**/ServiceDependencies/
+
 # .NET Core
 project.lock.json
 project.fragment.lock.json
 artifacts/
+
+# Ignore only sensitive configs
+appsettings.Development.json
 
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
@@ -36,13 +48,11 @@ ScaffoldingReadMe.txt
 # NuGet Symbol Packages
 *.snupkg
 
-# dotenv environment variables file
-.env
-
 # Others
 ~$*
 *~
 CodeCoverage/
+.vs/
 
 # MSBuild Binary and Structured Log
 *.binlog
@@ -55,3 +65,9 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Allow Application logs folder (contains source code, not runtime logs)
+!src/Application/Logs/
+!src/Application/Logs/**
+!AngularApp/src/app/pages/logs/
+!AngularApp/src/app/pages/logs/**
