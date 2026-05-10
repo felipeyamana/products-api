@@ -38,7 +38,7 @@ public class AppDbContext : DbContext
     {
         var entity = modelBuilder.Entity<Category>();
 
-        entity.ToTable("Categories");
+        entity.ToTable("Category", "catalog");
 
         entity.HasKey(x => x.Id);
 
@@ -63,7 +63,7 @@ public class AppDbContext : DbContext
     {
         var entity = modelBuilder.Entity<Product>();
 
-        entity.ToTable("Products");
+        entity.ToTable("Product", "catalog");
 
         entity.HasKey(x => x.Id);
 
@@ -119,7 +119,7 @@ public class AppDbContext : DbContext
     {
         var entity = modelBuilder.Entity<ProductImage>();
 
-        entity.ToTable("ProductImages");
+        entity.ToTable("ProductImage", "catalog");
 
         entity.HasKey(x => x.Id);
 
@@ -144,7 +144,7 @@ public class AppDbContext : DbContext
     {
         var entity = modelBuilder.Entity<ProductPrice>();
 
-        entity.ToTable("ProductPrices");
+        entity.ToTable("ProductPrice", "catalog");
 
         entity.HasKey(x => x.Id);
 
@@ -186,7 +186,7 @@ public class AppDbContext : DbContext
     {
         var entity = modelBuilder.Entity<ProductAttribute>();
 
-        entity.ToTable("ProductAttributes");
+        entity.ToTable("ProductAttribute", "catalog");
 
         entity.HasKey(x => x.Id);
 
@@ -215,7 +215,7 @@ public class AppDbContext : DbContext
     {
         var entity = modelBuilder.Entity<RawProductImport>();
 
-        entity.ToTable("RawProductImports");
+        entity.ToTable("RawProductImport", "catalog");
 
         entity.HasKey(x => x.Id);
 
