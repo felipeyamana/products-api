@@ -1,3 +1,7 @@
+using Application.Products.Repositories;
+using Infrastructure.Data;
+using Infrastructure.Products;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -9,7 +13,12 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        _ = configuration;
+        services.AddDbContext<AppDbContext>(options =>
+            options.UseSqlServer(
+                configuration.GetConnectionString("DefaultConnection"),
+                sqlOptions => sqlOptions.EnableRetryOnFailure()));
+
+        services.AddScoped<IProductRepository, ProductRepository>();
 
         return services;
     }
