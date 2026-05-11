@@ -9,7 +9,6 @@ public sealed record ProductDto(
     string CategoryName,
     int? SubCategoryId,
     string? SubCategoryName,
-    string? SourceUrl,
     string? ExternalProductId,
     decimal? AverageRating,
     int? TotalRatings,

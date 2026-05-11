@@ -20,7 +20,6 @@ public sealed class ProductFactory : IProductFactory
             CategoryName: product.Category.Name,
             SubCategoryId: product.SubCategoryId,
             SubCategoryName: product.SubCategory?.Name,
-            SourceUrl: product.SourceUrl,
             ExternalProductId: product.ExternalProductId,
             AverageRating: product.AverageRating,
             TotalRatings: product.TotalRatings,
