@@ -1,6 +1,7 @@
 using Application.Common.Dispatchers.Implementations;
 using Application.Common.Dispatchers.Interfaces;
 using Application.Common.Interfaces;
+using Application.Products.Factories;
 using Application.Products.Interfaces;
 using Application.Products.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,6 +15,7 @@ public static class DependencyInjection
     {
         services.AddScoped<ICommandDispatcher, CommandDispatcher>();
         services.AddScoped<IQueryDispatcher, QueryDispatcher>();
+        services.AddScoped<IProductFactory, ProductFactory>();
         services.AddScoped<IProductService, ProductService>();
 
         services.Scan(scan => scan

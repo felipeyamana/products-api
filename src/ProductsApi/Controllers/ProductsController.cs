@@ -1,3 +1,4 @@
+using Application.Products;
 using Application.Products.Dtos;
 using Application.Products.Interfaces;
 using Microsoft.AspNetCore.Mvc;
@@ -11,17 +12,28 @@ public class ProductsController(IProductService productService) : ControllerBase
     private readonly IProductService _productService = productService;
 
     [HttpGet]
-    [ProducesResponseType(typeof(IReadOnlyList<ProductDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<ProductDto>>> GetProducts(CancellationToken cancellationToken)
+    [ProducesResponseType(typeof(PagedProductsDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<PagedProductsDto>> GetProducts(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = ProductPaging.DefaultPageSize,
+        CancellationToken cancellationToken = default)
     {
-        var items = await _productService.GetAllAsync(cancellationToken);
-        return Ok(items);
+        try
+        {
+            var result = await _productService.GetPagedAsync(page, pageSize, cancellationToken);
+            return Ok(result);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
-    [HttpGet("{id:guid}")]
+    [HttpGet("{id:long}")]
     [ProducesResponseType(typeof(ProductDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ProductDto>> GetProduct(Guid id, CancellationToken cancellationToken)
+    public async Task<ActionResult<ProductDto>> GetProduct(long id, CancellationToken cancellationToken)
     {
         var product = await _productService.GetByIdAsync(id, cancellationToken);
         if (product is null)
