@@ -1,17 +1,20 @@
-using Application.Common;
-using Application.Products;
-using Application.Products.Dtos;
-using Application.Products.Interfaces;
+using ProductsApi.Common;
+using ProductsApi.Common.Cqrs;
+using ProductsApi.Features.Products.CreateProduct;
+using ProductsApi.Features.Products.DeleteProduct;
+using ProductsApi.Features.Products.GetPagedProducts;
+using ProductsApi.Features.Products.GetProductById;
+using ProductsApi.Features.Products.PatchProduct;
+using ProductsApi.Features.Products.ReplaceProduct;
+using ProductsApi.Features.Products.Shared;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ProductsApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class ProductsController(IProductService productService) : ControllerBase
+public class ProductsController(IQueryDispatcher queryDispatcher, ICommandDispatcher commandDispatcher) : ControllerBase
 {
-    private readonly IProductService _productService = productService;
-
     [HttpGet]
     [ProducesResponseType(typeof(PagedProductsDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -20,16 +23,13 @@ public class ProductsController(IProductService productService) : ControllerBase
         [FromQuery] int pageSize = ProductPaging.DefaultPageSize,
         CancellationToken cancellationToken = default)
     {
-        var result = await _productService.GetPagedAsync(page, pageSize, cancellationToken);
+        var result = await queryDispatcher.Dispatch<GetPagedProductsQuery, Result<PagedProductsDto>>(
+            new GetPagedProductsQuery(page, pageSize),
+            cancellationToken);
 
-        if (result.IsSuccess)
-        {
-            return Ok(result.Value);
-        }
-        else
-        {
-            return BadRequest(new { message = result.Error });
-        }
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : BadRequest(new { message = result.Error });
     }
 
     [HttpGet("{id:long}")]
@@ -37,16 +37,13 @@ public class ProductsController(IProductService productService) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetProduct(long id, CancellationToken cancellationToken)
     {
-        var result = await _productService.GetByIdAsync(id, cancellationToken);
+        var result = await queryDispatcher.Dispatch<GetProductByIdQuery, Result<ProductDto>>(
+            new GetProductByIdQuery(id),
+            cancellationToken);
 
-        if (result.IsSuccess)
-        {
-            return Ok(result.Value);
-        }
-        else
-        {
-            return NotFound(new { message = result.Error });
-        }
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : NotFound(new { message = result.Error });
     }
 
     [HttpPost]
@@ -57,7 +54,9 @@ public class ProductsController(IProductService productService) : ControllerBase
         [FromBody] CreateProductRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await _productService.CreateAsync(request, cancellationToken);
+        var result = await commandDispatcher.Dispatch<CreateProductCommand, Result<ProductDto>>(
+            new CreateProductCommand(request),
+            cancellationToken);
 
         if (result.IsSuccess)
         {
@@ -66,10 +65,8 @@ public class ProductsController(IProductService productService) : ControllerBase
                 new { id = result.Value!.Id },
                 result.Value);
         }
-        else
-        {
-            return ToErrorResponse(result);
-        }
+
+        return ToErrorResponse(result);
     }
 
     [HttpPut("{id:long}")]
@@ -82,16 +79,13 @@ public class ProductsController(IProductService productService) : ControllerBase
         [FromBody] UpdateProductRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await _productService.ReplaceAsync(id, request, cancellationToken);
+        var result = await commandDispatcher.Dispatch<ReplaceProductCommand, Result<ProductDto>>(
+            new ReplaceProductCommand(id, request),
+            cancellationToken);
 
-        if (result.IsSuccess)
-        {
-            return Ok(result.Value);
-        }
-        else
-        {
-            return ToErrorResponse(result);
-        }
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : ToErrorResponse(result);
     }
 
     [HttpPatch("{id:long}")]
@@ -104,16 +98,13 @@ public class ProductsController(IProductService productService) : ControllerBase
         [FromBody] PatchProductRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await _productService.PatchAsync(id, request, cancellationToken);
+        var result = await commandDispatcher.Dispatch<PatchProductCommand, Result<ProductDto>>(
+            new PatchProductCommand(id, request),
+            cancellationToken);
 
-        if (result.IsSuccess)
-        {
-            return Ok(result.Value);
-        }
-        else
-        {
-            return ToErrorResponse(result);
-        }
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : ToErrorResponse(result);
     }
 
     [HttpDelete("{id:long}")]
@@ -121,29 +112,22 @@ public class ProductsController(IProductService productService) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteProduct(long id, CancellationToken cancellationToken)
     {
-        var result = await _productService.DeleteAsync(id, cancellationToken);
+        var result = await commandDispatcher.Dispatch<DeleteProductCommand, Result<bool>>(
+            new DeleteProductCommand(id),
+            cancellationToken);
 
-        if (result.IsSuccess)
-        {
-            return NoContent();
-        }
-        else
-        {
-            return NotFound(new { message = result.Error });
-        }
+        return result.IsSuccess
+            ? NoContent()
+            : NotFound(new { message = result.Error });
     }
 
     private IActionResult ToErrorResponse<T>(Result<T> result)
     {
         if (result.Error!.Contains("not found", StringComparison.OrdinalIgnoreCase))
-        {
             return NotFound(new { message = result.Error });
-        }
 
         if (result.Error.Contains("already exists", StringComparison.OrdinalIgnoreCase))
-        {
             return Conflict(new { message = result.Error });
-        }
 
         return BadRequest(new { message = result.Error });
     }
