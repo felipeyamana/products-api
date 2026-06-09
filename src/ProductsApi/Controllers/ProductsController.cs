@@ -7,6 +7,8 @@ using ProductsApi.Features.Products.GetProductById;
 using ProductsApi.Features.Products.PatchProduct;
 using ProductsApi.Features.Products.ReplaceProduct;
 using ProductsApi.Features.Products.Shared;
+using ProductsApi.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ProductsApi.Controllers;
@@ -16,7 +18,9 @@ namespace ProductsApi.Controllers;
 public class ProductsController(IQueryDispatcher queryDispatcher, ICommandDispatcher commandDispatcher) : ControllerBase
 {
     [HttpGet]
+    [Authorize(Policy = AuthorizationPolicies.ProductsRead)]
     [ProducesResponseType(typeof(PagedProductsDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetProducts(
         [FromQuery] int page = 1,
@@ -33,7 +37,9 @@ public class ProductsController(IQueryDispatcher queryDispatcher, ICommandDispat
     }
 
     [HttpGet("{id:long}")]
+    [Authorize(Policy = AuthorizationPolicies.ProductsRead)]
     [ProducesResponseType(typeof(ProductDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetProduct(long id, CancellationToken cancellationToken)
     {
@@ -47,7 +53,10 @@ public class ProductsController(IQueryDispatcher queryDispatcher, ICommandDispat
     }
 
     [HttpPost]
+    [Authorize(Policy = AuthorizationPolicies.ProductsWrite)]
     [ProducesResponseType(typeof(ProductDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> CreateProduct(
@@ -70,7 +79,10 @@ public class ProductsController(IQueryDispatcher queryDispatcher, ICommandDispat
     }
 
     [HttpPut("{id:long}")]
+    [Authorize(Policy = AuthorizationPolicies.ProductsWrite)]
     [ProducesResponseType(typeof(ProductDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -89,7 +101,10 @@ public class ProductsController(IQueryDispatcher queryDispatcher, ICommandDispat
     }
 
     [HttpPatch("{id:long}")]
+    [Authorize(Policy = AuthorizationPolicies.ProductsWrite)]
     [ProducesResponseType(typeof(ProductDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -108,7 +123,10 @@ public class ProductsController(IQueryDispatcher queryDispatcher, ICommandDispat
     }
 
     [HttpDelete("{id:long}")]
+    [Authorize(Policy = AuthorizationPolicies.ProductsWrite)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteProduct(long id, CancellationToken cancellationToken)
     {
