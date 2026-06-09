@@ -19,6 +19,8 @@ if (app.Environment.IsDevelopment())
     });
 }
 
+// making sure the newly created workflow is working, remove this later
+
 app.MapControllers();
 
 app.Run();
