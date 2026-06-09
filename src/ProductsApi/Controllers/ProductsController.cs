@@ -9,12 +9,14 @@ using ProductsApi.Features.Products.ReplaceProduct;
 using ProductsApi.Features.Products.Shared;
 using ProductsApi.Security;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ProductsApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[EnableRateLimiting(RateLimitPolicies.Products)]
 public class ProductsController(IQueryDispatcher queryDispatcher, ICommandDispatcher commandDispatcher) : ControllerBase
 {
     [HttpGet]

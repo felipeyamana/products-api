@@ -1,6 +1,7 @@
 using ProductsApi.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -11,6 +12,7 @@ namespace ProductsApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[EnableRateLimiting(RateLimitPolicies.Auth)]
 public class AuthController(IOptions<JwtOptions> jwtOptions) : ControllerBase
 {
     private static readonly string[] AllowedRoles = ["Admin", "ProductManager"];
