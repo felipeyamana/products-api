@@ -39,7 +39,6 @@ artifacts/
 
 # Ignore only sensitive configs
 appsettings.Development.json
-!src/ProductsApi/appsettings.Development.json
 
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
