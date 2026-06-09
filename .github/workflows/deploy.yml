@@ -50,6 +50,8 @@ jobs:
           zip -r "${{ env.PACKAGE_PATH }}" .
 
       - name: Generate EF migration script
+        env:
+          ConnectionStrings__DefaultConnection: Server=localhost;Database=ProductsApiDb;User Id=sa;Password=Placeholder_password_123;TrustServerCertificate=True
         run: |
           dotnet tool install --tool-path ./.tools dotnet-ef --version 10.0.*
           ./.tools/dotnet-ef migrations script --idempotent --no-build \
