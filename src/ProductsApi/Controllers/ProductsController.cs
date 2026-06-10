@@ -29,7 +29,7 @@ public class ProductsController(
     [Authorize(Policy = AuthorizationPolicies.ProductsRead)]
     [ProducesResponseType(typeof(PagedProductsDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetProducts(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = ProductPaging.DefaultPageSize,
@@ -49,7 +49,7 @@ public class ProductsController(
 
         if (!result.IsSuccess)
         {
-            return BadRequest(new { message = result.Error });
+            return BadRequest(new ErrorResponse(result.Error!));
         }
 
         if (_productCache is not null)
@@ -64,7 +64,7 @@ public class ProductsController(
     [Authorize(Policy = AuthorizationPolicies.ProductsRead)]
     [ProducesResponseType(typeof(ProductDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetProduct(long id, CancellationToken cancellationToken)
     {
         var cachedProduct = _productCache is null
@@ -81,7 +81,7 @@ public class ProductsController(
 
         if (!result.IsSuccess)
         {
-            return NotFound(new { message = result.Error });
+            return NotFound(new ErrorResponse(result.Error!));
         }
 
         if (_productCache is not null)
@@ -97,8 +97,8 @@ public class ProductsController(
     [ProducesResponseType(typeof(ProductDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> CreateProduct(
         [FromBody] CreateProductRequest request,
         CancellationToken cancellationToken)
@@ -128,9 +128,9 @@ public class ProductsController(
     [ProducesResponseType(typeof(ProductDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ReplaceProduct(
         long id,
         [FromBody] UpdateProductRequest request,
@@ -160,9 +160,9 @@ public class ProductsController(
     [ProducesResponseType(typeof(ProductDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> PatchProduct(
         long id,
         [FromBody] PatchProductRequest request,
@@ -192,7 +192,7 @@ public class ProductsController(
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteProduct(long id, CancellationToken cancellationToken)
     {
         var result = await commandDispatcher.Dispatch<DeleteProductCommand, Result<bool>>(
@@ -201,7 +201,7 @@ public class ProductsController(
 
         if (!result.IsSuccess)
         {
-            return NotFound(new { message = result.Error });
+            return NotFound(new ErrorResponse(result.Error!));
         }
 
         if (_productCache is not null)
@@ -216,11 +216,11 @@ public class ProductsController(
     private IActionResult ToErrorResponse<T>(Result<T> result)
     {
         if (result.Error!.Contains("not found", StringComparison.OrdinalIgnoreCase))
-            return NotFound(new { message = result.Error });
+            return NotFound(new ErrorResponse(result.Error));
 
         if (result.Error.Contains("already exists", StringComparison.OrdinalIgnoreCase))
-            return Conflict(new { message = result.Error });
+            return Conflict(new ErrorResponse(result.Error));
 
-        return BadRequest(new { message = result.Error });
+        return BadRequest(new ErrorResponse(result.Error));
     }
 }
