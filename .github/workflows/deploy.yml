@@ -41,6 +41,11 @@ jobs:
       - name: Build
         run: dotnet build ${{ env.SOLUTION_PATH }} --configuration Release --no-restore
 
+      - name: Test
+        env:
+          RUN_TESTCONTAINERS: true
+        run: dotnet test ${{ env.SOLUTION_PATH }} --configuration Release --no-build --no-restore --verbosity normal
+
       - name: Publish
         run: dotnet publish ${{ env.PROJECT_PATH }} --configuration Release --no-build --no-restore --output ${{ env.PUBLISH_DIR }}
 
