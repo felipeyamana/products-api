@@ -1,11 +1,15 @@
 using ProductsApi.Common.Cqrs;
+using ProductsApi.Caching;
 using Microsoft.EntityFrameworkCore;
 using ProductsApi.Data;
 using ProductsApi.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using StackExchange.Redis;
 using System.Text;
 using System.Reflection;
+using System.Globalization;
+using System.Threading.RateLimiting;
 
 namespace ProductsApi;
 
@@ -13,7 +17,8 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddProductsApi(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IWebHostEnvironment environment)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException(
@@ -62,6 +67,44 @@ public static class DependencyInjection
             options.AddPolicy(AuthorizationPolicies.ProductsWrite, policy =>
                 policy.RequireRole("Admin", "ProductManager"));
         });
+        services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.OnRejected = async (context, cancellationToken) =>
+            {
+                if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+                {
+                    context.HttpContext.Response.Headers.RetryAfter =
+                        ((int)retryAfter.TotalSeconds).ToString(CultureInfo.InvariantCulture);
+                }
+
+                await context.HttpContext.Response.WriteAsJsonAsync(
+                    new { message = "Too many requests. Please try again later." },
+                    cancellationToken);
+            };
+
+            options.AddPolicy(RateLimitPolicies.Auth, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    GetIpPartitionKey(httpContext, "auth"),
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 3,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        AutoReplenishment = true
+                    }));
+
+            options.AddPolicy(RateLimitPolicies.Products, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    GetUserPartitionKey(httpContext, "products"),
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 10,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        AutoReplenishment = true
+                    }));
+        });
 
         services.AddScoped<ICommandDispatcher, CommandDispatcher>();
         services.AddScoped<IQueryDispatcher, QueryDispatcher>();
@@ -78,6 +121,73 @@ public static class DependencyInjection
                 .AsImplementedInterfaces()
                 .WithScopedLifetime());
 
+        services.AddProductCaching(configuration, environment);
+
         return services;
+    }
+
+    private static IServiceCollection AddProductCaching(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IWebHostEnvironment environment)
+    {
+        var redisOptions = configuration.GetSection(RedisOptions.SectionName).Get<RedisOptions>();
+
+        if (redisOptions is null)
+        {
+            return services;
+        }
+
+        var shouldUseRedis = environment.IsProduction() || redisOptions.Enabled;
+        if (!shouldUseRedis || string.IsNullOrWhiteSpace(redisOptions.ConnectionString))
+        {
+            if (redisOptions.RegisterNullCacheWhenDisabled)
+            {
+                services.AddSingleton<IProductCache, NullProductCache>();
+            }
+
+            return services;
+        }
+
+        ConfigurationOptions configurationOptions;
+        try
+        {
+            configurationOptions = ConfigurationOptions.Parse(redisOptions.ConnectionString);
+            configurationOptions.AbortOnConnectFail = false;
+        }
+        catch
+        {
+            if (redisOptions.RegisterNullCacheWhenDisabled)
+            {
+                services.AddSingleton<IProductCache, NullProductCache>();
+            }
+
+            return services;
+        }
+
+        services.AddStackExchangeRedisCache(options =>
+        {
+            options.ConfigurationOptions = configurationOptions;
+            options.InstanceName = string.IsNullOrWhiteSpace(redisOptions.InstanceName)
+                ? "products-api:"
+                : redisOptions.InstanceName;
+        });
+        services.AddSingleton<IProductCache, ProductCache>();
+
+        return services;
+    }
+
+    private static string GetIpPartitionKey(HttpContext httpContext, string policyName)
+    {
+        var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return $"{policyName}:ip:{remoteIp}";
+    }
+
+    private static string GetUserPartitionKey(HttpContext httpContext, string policyName)
+    {
+        var subject = httpContext.User.FindFirst("sub")?.Value;
+        return string.IsNullOrWhiteSpace(subject)
+            ? GetIpPartitionKey(httpContext, policyName)
+            : $"{policyName}:sub:{subject}";
     }
 }
