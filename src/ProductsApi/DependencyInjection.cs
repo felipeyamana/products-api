@@ -1,9 +1,11 @@
 using ProductsApi.Common.Cqrs;
+using ProductsApi.Caching;
 using Microsoft.EntityFrameworkCore;
 using ProductsApi.Data;
 using ProductsApi.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using StackExchange.Redis;
 using System.Text;
 using System.Reflection;
 using System.Globalization;
@@ -15,7 +17,8 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddProductsApi(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IWebHostEnvironment environment)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException(
@@ -117,6 +120,59 @@ public static class DependencyInjection
             .AddClasses(c => c.AssignableTo(typeof(IQueryHandler<,>)))
                 .AsImplementedInterfaces()
                 .WithScopedLifetime());
+
+        services.AddProductCaching(configuration, environment);
+
+        return services;
+    }
+
+    private static IServiceCollection AddProductCaching(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IWebHostEnvironment environment)
+    {
+        var redisOptions = configuration.GetSection(RedisOptions.SectionName).Get<RedisOptions>();
+
+        if (redisOptions is null)
+        {
+            return services;
+        }
+
+        var shouldUseRedis = environment.IsProduction() || redisOptions.Enabled;
+        if (!shouldUseRedis || string.IsNullOrWhiteSpace(redisOptions.ConnectionString))
+        {
+            if (redisOptions.RegisterNullCacheWhenDisabled)
+            {
+                services.AddSingleton<IProductCache, NullProductCache>();
+            }
+
+            return services;
+        }
+
+        ConfigurationOptions configurationOptions;
+        try
+        {
+            configurationOptions = ConfigurationOptions.Parse(redisOptions.ConnectionString);
+            configurationOptions.AbortOnConnectFail = false;
+        }
+        catch
+        {
+            if (redisOptions.RegisterNullCacheWhenDisabled)
+            {
+                services.AddSingleton<IProductCache, NullProductCache>();
+            }
+
+            return services;
+        }
+
+        services.AddStackExchangeRedisCache(options =>
+        {
+            options.ConfigurationOptions = configurationOptions;
+            options.InstanceName = string.IsNullOrWhiteSpace(redisOptions.InstanceName)
+                ? "products-api:"
+                : redisOptions.InstanceName;
+        });
+        services.AddSingleton<IProductCache, ProductCache>();
 
         return services;
     }
