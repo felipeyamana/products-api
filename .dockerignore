@@ -1,0 +1,17 @@
+.git
+.github
+.vs
+**/bin
+**/obj
+**/TestResults
+**/coverage
+artifacts
+publish
+publish-validation
+*.user
+*.suo
+*.binlog
+*.nupkg
+*.snupkg
+Dockerfile
+README.md
