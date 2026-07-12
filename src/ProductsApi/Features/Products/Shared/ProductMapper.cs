@@ -1,9 +1,40 @@
 using ProductsApi.Data.Entities;
+using System.Linq.Expressions;
 
 namespace ProductsApi.Features.Products.Shared;
 
 internal static class ProductMapper
 {
+    public static readonly Expression<Func<Product, ProductDto>> ToDtoProjection = product => new ProductDto(
+        product.Id,
+        product.Name,
+        product.Brand,
+        product.Description,
+        product.CategoryId,
+        product.Category.Name,
+        product.SubCategoryId,
+        product.SubCategory != null ? product.SubCategory.Name : null,
+        product.ExternalProductId,
+        product.AverageRating,
+        product.TotalRatings,
+        product.IsActive,
+        product.CreatedAt,
+        product.UpdatedAt,
+        product.Prices
+            .OrderByDescending(price => price.CapturedAt)
+            .Select(price => (decimal?)price.ActualPrice)
+            .FirstOrDefault(),
+        product.Prices
+            .OrderByDescending(price => price.CapturedAt)
+            .Select(price => price.DiscountPrice)
+            .FirstOrDefault(),
+        product.Prices
+            .OrderByDescending(price => price.CapturedAt)
+            .Select(price => string.IsNullOrEmpty(price.CurrencyCode.Trim())
+                ? null
+                : price.CurrencyCode.Trim())
+            .FirstOrDefault());
+
     public static ProductDto ToDto(Product product)
     {
         var latest = product.Prices.OrderByDescending(x => x.CapturedAt).FirstOrDefault();
