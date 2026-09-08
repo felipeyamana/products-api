@@ -138,7 +138,7 @@ public static class DependencyInjection
             return services;
         }
 
-        var shouldUseRedis = environment.IsProduction() || redisOptions.Enabled;
+        var shouldUseRedis = redisOptions.Enabled;
         if (!shouldUseRedis || string.IsNullOrWhiteSpace(redisOptions.ConnectionString))
         {
             if (redisOptions.RegisterNullCacheWhenDisabled)
@@ -154,6 +154,10 @@ public static class DependencyInjection
         {
             configurationOptions = ConfigurationOptions.Parse(redisOptions.ConnectionString);
             configurationOptions.AbortOnConnectFail = false;
+
+            configurationOptions.ConnectTimeout = redisOptions.ConnectTimeoutMilliseconds;
+            configurationOptions.SyncTimeout = redisOptions.SyncTimeoutMilliseconds;
+            configurationOptions.AsyncTimeout = redisOptions.AsyncTimeoutMilliseconds;
         }
         catch
         {
