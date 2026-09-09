@@ -5,6 +5,8 @@ namespace ProductsApi.Data;
 
 public class AppDbContext : DbContext
 {
+    public DbSet<Cart> Carts => Set<Cart>();
+    public DbSet<CartItem> CartItems => Set<CartItem>();
     public DbSet<Product> Products => Set<Product>();
 
     public DbSet<Category> Categories => Set<Category>();
@@ -32,6 +34,32 @@ public class AppDbContext : DbContext
         ConfigureProductPrice(modelBuilder);
         ConfigureProductAttribute(modelBuilder);
         ConfigureRawProductImport(modelBuilder);
+        ConfigureCart(modelBuilder);
+        ConfigureCartItem(modelBuilder);
+    }
+
+    private static void ConfigureCart(ModelBuilder modelBuilder)
+    {
+        var cart = modelBuilder.Entity<Cart>();
+
+        cart.ToTable("Carts");
+        cart.HasKey(x => x.UserId);
+        cart.Property(x => x.UserId).HasMaxLength(200).UseCollation("Latin1_General_100_BIN2");
+        cart.Property(x => x.Version).IsConcurrencyToken();
+        cart.HasMany(x => x.Items).WithOne().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+    }
+
+    private static void ConfigureCartItem(ModelBuilder modelBuilder)
+    {
+        var item = modelBuilder.Entity<CartItem>();
+
+        item.ToTable("CartItems", table => table.HasCheckConstraint("CK_CartItems_Quantity", "[Quantity] BETWEEN 1 AND 99"));
+        item.HasKey(x => x.Id);
+        item.Property(x => x.UserId).HasMaxLength(200).UseCollation("Latin1_General_100_BIN2");
+        item.HasIndex(x => new { x.UserId, x.ProductId }).IsUnique();
+        item.Property(x => x.UnitPriceAtAddition).HasPrecision(18, 2);
+        item.Property(x => x.CurrencyAtAddition).HasMaxLength(3).IsRequired();
+        // No product FK: deleted catalog products must remain visible in saved carts.
     }
 
     private static void ConfigureCategory(ModelBuilder modelBuilder)

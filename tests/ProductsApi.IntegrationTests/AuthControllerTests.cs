@@ -89,6 +89,10 @@ public class AuthControllerTests
             ["Jwt__Issuer"] = Issuer,
             ["Jwt__Key"] = SigningKey,
             ["Jwt__ApiKey"] = ApiKey,
+            ["ECommerceJwt__Issuer"] = TestECommerceJwt.Issuer,
+            ["ECommerceJwt__Audience"] = TestECommerceJwt.Audience,
+            ["ECommerceJwt__PublicKey"] = TestECommerceJwt.PublicKey,
+            ["ECommerceJwt__KeyId"] = TestECommerceJwt.KeyId,
             ["Redis__Enabled"] = "false",
             ["Redis__RegisterNullCacheWhenDisabled"] = "false"
         };

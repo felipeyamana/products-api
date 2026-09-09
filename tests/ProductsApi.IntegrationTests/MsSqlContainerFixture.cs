@@ -45,6 +45,24 @@ public sealed class MsSqlContainerFixture : IAsyncLifetime
 
         return new AppDbContext(options);
     }
+
+    public async Task ResetDatabaseAsync()
+    {
+        if (!IsEnabled)
+        {
+            return;
+        }
+
+        await using var dbContext = CreateDbContext();
+        await dbContext.CartItems.ExecuteDeleteAsync();
+        await dbContext.Carts.ExecuteDeleteAsync();
+        await dbContext.RawProductImports.ExecuteDeleteAsync();
+        await dbContext.ProductAttributes.ExecuteDeleteAsync();
+        await dbContext.ProductImages.ExecuteDeleteAsync();
+        await dbContext.ProductPrices.ExecuteDeleteAsync();
+        await dbContext.Products.ExecuteDeleteAsync();
+        await dbContext.Categories.ExecuteDeleteAsync();
+    }
 }
 
 [CollectionDefinition(Name)]

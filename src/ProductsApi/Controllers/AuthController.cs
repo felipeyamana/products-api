@@ -31,6 +31,9 @@ public class AuthController(IOptions<JwtOptions> jwtOptions) : ControllerBase
             return Unauthorized(new { message = "Invalid API key." });
         }
 
+        if (string.IsNullOrWhiteSpace(request.Subject) || request.Subject.Length > 200 || request.Subject != request.Subject.Trim())
+            return BadRequest(new { message = "Subject must contain 1 to 200 characters without surrounding whitespace." });
+
         var roles = request.Roles.Count == 0
             ? ["ProductManager"]
             : request.Roles.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -39,6 +42,8 @@ public class AuthController(IOptions<JwtOptions> jwtOptions) : ControllerBase
         {
             return BadRequest(new { message = "One or more requested roles are not allowed." });
         }
+
+        roles = roles.Select(role => AllowedRoles.Single(allowed => allowed.Equals(role, StringComparison.OrdinalIgnoreCase))).ToArray();
 
         var expires = DateTime.UtcNow.AddMinutes(_jwtOptions.ExpireMinutes);
         var token = CreateJwt(request.Subject, roles, expires);
