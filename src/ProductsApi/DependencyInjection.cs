@@ -27,6 +27,9 @@ public static class DependencyInjection
         var jwtOptions = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
             ?? throw new InvalidOperationException(
                 "JWT settings were not configured. Set Jwt__Issuer, Jwt__Audience, Jwt__Key, and Jwt__ApiKey in the environment.");
+        var ecommerceJwtOptions = configuration.GetSection(ECommerceJwtOptions.SectionName).Get<ECommerceJwtOptions>()
+            ?? throw new InvalidOperationException(
+                "ECommerce JWT settings were not configured. Set ECommerceJwt__Issuer, ECommerceJwt__Audience, ECommerceJwt__PublicKey, and ECommerceJwt__KeyId.");
 
         if (string.IsNullOrWhiteSpace(jwtOptions.Issuer) ||
             string.IsNullOrWhiteSpace(jwtOptions.Audience) ||
@@ -36,6 +39,17 @@ public static class DependencyInjection
             throw new InvalidOperationException(
                 "JWT settings are incomplete. Set Jwt__Issuer, Jwt__Audience, Jwt__Key, and Jwt__ApiKey in the environment.");
         }
+
+        if (string.IsNullOrWhiteSpace(ecommerceJwtOptions.Issuer) ||
+            string.IsNullOrWhiteSpace(ecommerceJwtOptions.Audience) ||
+            string.IsNullOrWhiteSpace(ecommerceJwtOptions.PublicKey) ||
+            string.IsNullOrWhiteSpace(ecommerceJwtOptions.KeyId))
+        {
+            throw new InvalidOperationException(
+                "ECommerce JWT settings are incomplete. Set ECommerceJwt__Issuer, ECommerceJwt__Audience, ECommerceJwt__PublicKey, and ECommerceJwt__KeyId.");
+        }
+
+        var ecommerceSigningKey = ecommerceJwtOptions.CreateSecurityKey();
 
         services.AddDbContext<AppDbContext>(options =>
             options.UseSqlServer(
@@ -58,11 +72,41 @@ public static class DependencyInjection
                     ClockSkew = TimeSpan.FromMinutes(2),
                     RoleClaimType = jwtOptions.RoleClaimType
                 };
+            })
+            .AddJwtBearer(ECommerceJwtOptions.AuthenticationScheme, options =>
+            {
+                options.MapInboundClaims = false;
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = ecommerceJwtOptions.Issuer,
+                    ValidateAudience = true,
+                    ValidAudience = ecommerceJwtOptions.Audience,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKeyResolver = (_, _, keyId, _) =>
+                        StringComparer.Ordinal.Equals(keyId, ecommerceJwtOptions.KeyId)
+                            ? [ecommerceSigningKey]
+                            : [],
+                    ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromMinutes(2),
+                    RoleClaimType = "role"
+                };
             });
         services.AddAuthorization(options =>
         {
-            options.AddPolicy("Cart.User", policy => policy.RequireAuthenticatedUser()
-                .RequireRole("CartUser").RequireClaim("sub"));
+            options.AddPolicy(AuthorizationPolicies.CartRead, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("CartUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasScope(context.User, "cart:read")));
+            options.AddPolicy(AuthorizationPolicies.CartWrite, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("CartUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasScope(context.User, "cart:write")));
             options.AddPolicy(AuthorizationPolicies.ProductsRead, policy =>
                 policy.RequireAuthenticatedUser());
 
@@ -198,4 +242,9 @@ public static class DependencyInjection
             ? GetIpPartitionKey(httpContext, policyName)
             : $"{policyName}:sub:{subject}";
     }
+
+    private static bool HasScope(System.Security.Claims.ClaimsPrincipal user, string requiredScope) =>
+        user.FindAll("scope")
+            .SelectMany(claim => claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .Contains(requiredScope, StringComparer.Ordinal);
 }

@@ -15,7 +15,7 @@ namespace ProductsApi.Controllers;
 [EnableRateLimiting(RateLimitPolicies.Auth)]
 public class AuthController(IOptions<JwtOptions> jwtOptions) : ControllerBase
 {
-    private static readonly string[] AllowedRoles = ["Admin", "ProductManager", "CartUser"];
+    private static readonly string[] AllowedRoles = ["Admin", "ProductManager"];
     private readonly JwtOptions _jwtOptions = jwtOptions.Value;
 
     [HttpPost("token")]

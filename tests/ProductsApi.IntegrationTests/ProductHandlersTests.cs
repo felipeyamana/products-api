@@ -20,13 +20,7 @@ public sealed class ProductHandlersTests(MsSqlContainerFixture fixture) : IAsync
             return;
         }
 
-        await using var dbContext = fixture.CreateDbContext();
-        await dbContext.RawProductImports.ExecuteDeleteAsync();
-        await dbContext.ProductAttributes.ExecuteDeleteAsync();
-        await dbContext.ProductImages.ExecuteDeleteAsync();
-        await dbContext.ProductPrices.ExecuteDeleteAsync();
-        await dbContext.Products.ExecuteDeleteAsync();
-        await dbContext.Categories.ExecuteDeleteAsync();
+        await fixture.ResetDatabaseAsync();
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
