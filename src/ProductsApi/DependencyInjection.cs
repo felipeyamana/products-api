@@ -61,6 +61,8 @@ public static class DependencyInjection
             });
         services.AddAuthorization(options =>
         {
+            options.AddPolicy("Cart.User", policy => policy.RequireAuthenticatedUser()
+                .RequireRole("CartUser").RequireClaim("sub"));
             options.AddPolicy(AuthorizationPolicies.ProductsRead, policy =>
                 policy.RequireAuthenticatedUser());
 
@@ -107,6 +109,8 @@ public static class DependencyInjection
         });
 
         services.AddScoped<ICommandDispatcher, CommandDispatcher>();
+        services.AddScoped<ProductsApi.Features.Cart.CartLockManager>();
+        services.AddScoped<ProductsApi.Features.Cart.CartService>();
         services.AddScoped<IQueryDispatcher, QueryDispatcher>();
 
         services.Scan(scan => scan

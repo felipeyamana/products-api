@@ -25,7 +25,8 @@ public class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbContext>
                 "Set ConnectionStrings__DefaultConnection in the environment.");
 
         var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
-        optionsBuilder.UseSqlServer(connectionString);
+        optionsBuilder.UseSqlServer(connectionString,
+            sqlOptions => sqlOptions.EnableRetryOnFailure());
 
         return new AppDbContext(optionsBuilder.Options);
     }
