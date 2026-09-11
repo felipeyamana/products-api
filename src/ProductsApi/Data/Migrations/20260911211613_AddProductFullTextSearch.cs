@@ -12,22 +12,22 @@ namespace ProductsApi.Data.Migrations
         {
             migrationBuilder.Sql(
                 """
-                IF FULLTEXTSERVICEPROPERTY('IsFullTextInstalled') <> 1
-                    THROW 50000, 'SQL Server Full-Text Search is not installed.', 1;
+                IF FULLTEXTSERVICEPROPERTY('IsFullTextInstalled') = 1
+                BEGIN
+                    CREATE FULLTEXT CATALOG [ProductsFullTextCatalog]
+                        WITH ACCENT_SENSITIVITY = OFF
+                        AS DEFAULT;
 
-                CREATE FULLTEXT CATALOG [ProductsFullTextCatalog]
-                    WITH ACCENT_SENSITIVITY = OFF
-                    AS DEFAULT;
-
-                CREATE FULLTEXT INDEX ON [dbo].[Products]
-                (
-                    [Name] LANGUAGE 1033,
-                    [Brand] LANGUAGE 1033,
-                    [Description] LANGUAGE 1033
-                )
-                KEY INDEX [PK_Products]
-                ON [ProductsFullTextCatalog]
-                WITH CHANGE_TRACKING AUTO;
+                    CREATE FULLTEXT INDEX ON [dbo].[Products]
+                    (
+                        [Name] LANGUAGE 1033,
+                        [Brand] LANGUAGE 1033,
+                        [Description] LANGUAGE 1033
+                    )
+                    KEY INDEX [PK_Products]
+                    ON [ProductsFullTextCatalog]
+                    WITH CHANGE_TRACKING AUTO;
+                END;
                 """,
                 suppressTransaction: true);
         }
@@ -37,8 +37,17 @@ namespace ProductsApi.Data.Migrations
         {
             migrationBuilder.Sql(
                 """
-                DROP FULLTEXT INDEX ON [dbo].[Products];
-                DROP FULLTEXT CATALOG [ProductsFullTextCatalog];
+                IF EXISTS (
+                    SELECT 1
+                    FROM sys.fulltext_indexes
+                    WHERE object_id = OBJECT_ID(N'[dbo].[Products]'))
+                    DROP FULLTEXT INDEX ON [dbo].[Products];
+
+                IF EXISTS (
+                    SELECT 1
+                    FROM sys.fulltext_catalogs
+                    WHERE name = N'ProductsFullTextCatalog')
+                    DROP FULLTEXT CATALOG [ProductsFullTextCatalog];
                 """,
                 suppressTransaction: true);
         }
