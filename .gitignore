@@ -68,3 +68,6 @@ nunit-*.xml
 !src/Application/Logs/**
 !AngularApp/src/app/pages/logs/
 !AngularApp/src/app/pages/logs/**
+
+# Local development configuration may contain credentials.
+src/ProductsApi/appsettings.Development.json

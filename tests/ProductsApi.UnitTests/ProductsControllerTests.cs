@@ -34,6 +34,27 @@ public class ProductsControllerTests
     }
 
     [Fact]
+    public async Task GetProducts_WhenSearching_BypassesUnfilteredPageCache()
+    {
+        var cachedPage = new PagedProductsDto([CreateProduct(1)], 1, 30, 1, 1);
+        var searchPage = new PagedProductsDto([CreateProduct(2)], 1, 30, 1, 1);
+        var cache = new TestProductCache { PagedProducts = cachedPage };
+        var queryDispatcher = new Mock<IQueryDispatcher>();
+        queryDispatcher
+            .Setup(x => x.Dispatch<GetPagedProductsQuery, Result<PagedProductsDto>>(
+                It.Is<GetPagedProductsQuery>(query => query.Search == "keyboard"),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<PagedProductsDto>.Ok(searchPage));
+        var controller = CreateController(queryDispatcher: queryDispatcher, cache: cache);
+
+        var response = await controller.GetProducts(1, 30, " keyboard ", CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(response);
+        Assert.Same(searchPage, okResult.Value);
+        Assert.Same(cachedPage, cache.PagedProducts);
+    }
+
+    [Fact]
     public async Task ReplaceProduct_WhenCommandSucceeds_InvalidatesAndRefreshesCache()
     {
         var product = CreateProduct(5);
@@ -91,7 +112,7 @@ public class ProductsControllerTests
 
     private sealed class TestProductCache : IProductCache
     {
-        public PagedProductsDto? PagedProducts { get; private set; }
+        public PagedProductsDto? PagedProducts { get; set; }
 
         public ProductDto? Product { get; set; }
 

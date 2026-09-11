@@ -81,6 +81,7 @@ flowchart LR
   Client["ECommerce API"] -->|HTTP + ECommerce RS256 JWT| API["Products API"]
   API --> Auth["AuthController"]
   API --> Products["ProductsController"]
+  API --> Categories["CategoriesController"]
   API --> Cart["CartController"]
   Products --> CQRS["Command / Query dispatchers"]
   CQRS --> Handlers["Product handlers"]
@@ -114,6 +115,8 @@ This preserves the main vertical-slice benefit—organizing business behavior ar
 
 - **Feature-oriented use cases**: product operations live in individual folders under `Features/Products`; cart behavior lives under `Features/Cart`.
 - **CQRS-style product dispatching**: product controllers call command/query dispatchers instead of directly using EF Core.
+- **Category navigation data**: `GET /api/categories` returns categories alphabetically with parent IDs for hierarchy-aware clients.
+- **Full-text product search**: `GET /api/products?search=mechanical%20keyboard` searches product names, brands, and descriptions through SQL Server Full-Text Search.
 - **Explicit HTTP contracts**: success and error response types are documented with `ProducesResponseType`.
 - **Role-based access control**:
   - Product read endpoints require an authenticated JWT.
@@ -233,6 +236,7 @@ Product endpoint authorization:
 |---------------|-------------|
 | `GET /api/products` | Valid JWT |
 | `GET /api/products/{id}` | Valid JWT |
+| `GET /api/categories` | Valid JWT |
 | `POST /api/products` | `Admin` or `ProductManager` role |
 | `PUT /api/products/{id}` | `Admin` or `ProductManager` role |
 | `PATCH /api/products/{id}` | `Admin` or `ProductManager` role |

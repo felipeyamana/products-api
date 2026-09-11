@@ -33,9 +33,13 @@ public class ProductsController(
     public async Task<IActionResult> GetProducts(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = ProductPaging.DefaultPageSize,
+        [FromQuery] string? search = null,
         CancellationToken cancellationToken = default)
     {
-        var cachedProducts = _productCache is null
+        var normalizedSearch = string.IsNullOrWhiteSpace(search)
+            ? null
+            : search.Trim();
+        var cachedProducts = _productCache is null || normalizedSearch is not null
             ? null
             : await _productCache.GetPagedProductsAsync(page, pageSize, cancellationToken);
         if (cachedProducts is not null)
@@ -44,7 +48,7 @@ public class ProductsController(
         }
 
         var result = await queryDispatcher.Dispatch<GetPagedProductsQuery, Result<PagedProductsDto>>(
-            new GetPagedProductsQuery(page, pageSize),
+            new GetPagedProductsQuery(page, pageSize, normalizedSearch),
             cancellationToken);
 
         if (!result.IsSuccess)
@@ -52,7 +56,7 @@ public class ProductsController(
             return BadRequest(new ErrorResponse(result.Error!));
         }
 
-        if (_productCache is not null)
+        if (_productCache is not null && normalizedSearch is null)
         {
             await _productCache.SetPagedProductsAsync(result.Value!, cancellationToken);
         }
