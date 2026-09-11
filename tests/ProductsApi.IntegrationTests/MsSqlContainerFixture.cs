@@ -7,6 +7,10 @@ namespace ProductsApi.IntegrationTests;
 
 public sealed class MsSqlContainerFixture : IAsyncLifetime
 {
+    private const string MigrationBeforeFullTextSearch = "20260908225444_AddCarts";
+    private const string FullTextSearchMigration = "20260911211613_AddProductFullTextSearch";
+    private const string EfProductVersion = "10.0.0";
+
     private MsSqlContainer? _container;
 
     public bool IsEnabled =>
@@ -32,6 +36,16 @@ public sealed class MsSqlContainerFixture : IAsyncLifetime
 
         await _container.StartAsync();
         await using var dbContext = CreateDbContext();
+
+        // The stock SQL Server test image cannot load its optional full-text component.
+        // Apply the schema through the preceding migration, record this infrastructure-only
+        // migration as handled, then continue with any later schema migrations.
+        await dbContext.Database.MigrateAsync(MigrationBeforeFullTextSearch);
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+            VALUES ({FullTextSearchMigration}, {EfProductVersion})
+            """);
         await dbContext.Database.MigrateAsync();
     }
 
