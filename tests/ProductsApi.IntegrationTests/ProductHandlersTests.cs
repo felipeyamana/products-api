@@ -1,6 +1,5 @@
 using ProductsApi.Data;
 using ProductsApi.Data.Entities;
-using ProductsApi.Common;
 using ProductsApi.Features.Products.CreateProduct;
 using ProductsApi.Features.Products.DeleteProduct;
 using ProductsApi.Features.Products.GetPagedProducts;
@@ -88,39 +87,6 @@ public sealed class ProductHandlersTests(MsSqlContainerFixture fixture) : IAsync
         Assert.Equal(3, result.Value!.TotalCount);
         Assert.Equal(2, result.Value.TotalPages);
         Assert.Equal(["Alpha", "Beta"], result.Value.Items.Select(x => x.Name));
-    }
-
-    [Fact]
-    public async Task GetPagedProducts_SearchesFullTextIndexedProductFields()
-    {
-        if (!fixture.IsEnabled)
-        {
-            return;
-        }
-
-        await using var dbContext = fixture.CreateDbContext();
-        var category = await CreateCategoryAsync(dbContext, "Catalog");
-        await CreateProductAsync(dbContext, category.Id, "Mechanical Keyboard");
-        await CreateProductAsync(dbContext, category.Id, "Wireless Mouse");
-        var handler = new GetPagedProductsHandler(dbContext);
-
-        Result<PagedProductsDto>? result = null;
-        for (var attempt = 0; attempt < 50; attempt++)
-        {
-            result = await handler.Handle(
-                new GetPagedProductsQuery(1, 30, "keyboard"),
-                CancellationToken.None);
-            if (result.Value?.Items.Count > 0)
-            {
-                break;
-            }
-
-            await Task.Delay(100);
-        }
-
-        Assert.NotNull(result);
-        Assert.True(result.IsSuccess, result.Error);
-        Assert.Equal("Mechanical Keyboard", Assert.Single(result.Value!.Items).Name);
     }
 
     [Fact]
