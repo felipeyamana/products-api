@@ -1,10 +1,12 @@
 using ProductsApi.Data;
 using ProductsApi.Data.Entities;
+using ProductsApi.Common;
 using ProductsApi.Features.Products.CreateProduct;
 using ProductsApi.Features.Products.DeleteProduct;
 using ProductsApi.Features.Products.GetPagedProducts;
 using ProductsApi.Features.Products.GetProductById;
 using ProductsApi.Features.Products.Shared;
+using ProductsApi.Features.Categories.GetCategories;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -89,6 +91,78 @@ public sealed class ProductHandlersTests(MsSqlContainerFixture fixture) : IAsync
     }
 
     [Fact]
+    public async Task GetPagedProducts_SearchesFullTextIndexedProductFields()
+    {
+        if (!fixture.IsEnabled)
+        {
+            return;
+        }
+
+        await using var dbContext = fixture.CreateDbContext();
+        var category = await CreateCategoryAsync(dbContext, "Catalog");
+        await CreateProductAsync(dbContext, category.Id, "Mechanical Keyboard");
+        await CreateProductAsync(dbContext, category.Id, "Wireless Mouse");
+        var handler = new GetPagedProductsHandler(dbContext);
+
+        Result<PagedProductsDto>? result = null;
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            result = await handler.Handle(
+                new GetPagedProductsQuery(1, 30, "keyboard"),
+                CancellationToken.None);
+            if (result.Value?.Items.Count > 0)
+            {
+                break;
+            }
+
+            await Task.Delay(100);
+        }
+
+        Assert.NotNull(result);
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal("Mechanical Keyboard", Assert.Single(result.Value!.Items).Name);
+    }
+
+    [Fact]
+    public async Task GetPagedProducts_RejectsSearchOverMaximumLength()
+    {
+        if (!fixture.IsEnabled)
+        {
+            return;
+        }
+
+        await using var dbContext = fixture.CreateDbContext();
+        var handler = new GetPagedProductsHandler(dbContext);
+
+        var result = await handler.Handle(
+            new GetPagedProductsQuery(1, 30, new string('a', ProductConstraints.MaxSearchLength + 1)),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Contains(ProductConstraints.MaxSearchLength.ToString(), result.Error);
+    }
+
+    [Fact]
+    public async Task GetCategories_OrdersCategoriesAndReturnsTheirHierarchyReferences()
+    {
+        if (!fixture.IsEnabled)
+        {
+            return;
+        }
+
+        await using var dbContext = fixture.CreateDbContext();
+        var parent = await CreateCategoryAsync(dbContext, "Electronics");
+        await CreateCategoryAsync(dbContext, "Accessories", parent.Id);
+        await CreateCategoryAsync(dbContext, "Books");
+        var handler = new GetCategoriesHandler(dbContext);
+
+        var result = await handler.Handle(new GetCategoriesQuery(), CancellationToken.None);
+
+        Assert.Equal(["Accessories", "Books", "Electronics"], result.Select(x => x.Name));
+        Assert.Equal(parent.Id, result.Single(x => x.Name == "Accessories").ParentCategoryId);
+    }
+
+    [Fact]
     public async Task CreateProduct_RejectsDuplicateExternalProductId()
     {
         if (!fixture.IsEnabled)
@@ -133,9 +207,12 @@ public sealed class ProductHandlersTests(MsSqlContainerFixture fixture) : IAsync
         Assert.False(await dbContext.Products.AnyAsync(x => x.Id == product.Id));
     }
 
-    private static async Task<Category> CreateCategoryAsync(AppDbContext dbContext, string name)
+    private static async Task<Category> CreateCategoryAsync(
+        AppDbContext dbContext,
+        string name,
+        int? parentCategoryId = null)
     {
-        var category = new Category { Name = name };
+        var category = new Category { Name = name, ParentCategoryId = parentCategoryId };
         await dbContext.Categories.AddAsync(category);
         await dbContext.SaveChangesAsync();
         return category;

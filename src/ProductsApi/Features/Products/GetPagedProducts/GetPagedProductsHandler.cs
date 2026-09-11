@@ -17,8 +17,23 @@ public sealed class GetPagedProductsHandler(AppDbContext dbContext)
         if (pagingError is not null)
             return Result<PagedProductsDto>.Fail(pagingError);
 
-        var ordered = dbContext.Products
-            .AsNoTracking()
+        var search = string.IsNullOrWhiteSpace(query.Search)
+            ? null
+            : query.Search.Trim();
+        if (search?.Length > ProductConstraints.MaxSearchLength)
+            return Result<PagedProductsDto>.Fail(
+                $"Search must not exceed {ProductConstraints.MaxSearchLength} characters.");
+
+        var products = dbContext.Products.AsNoTracking();
+        if (search is not null)
+        {
+            products = products.Where(product =>
+                EF.Functions.FreeText(product.Name, search) ||
+                EF.Functions.FreeText(product.Brand!, search) ||
+                EF.Functions.FreeText(product.Description!, search));
+        }
+
+        var ordered = products
             .OrderBy(p => p.Name);
 
         var totalCount = await ordered.CountAsync(cancellationToken);

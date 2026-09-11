@@ -7,4 +7,5 @@ public static class ProductConstraints
     public const int MaxUrlLength = 1000;
     public const int MaxExternalIdLength = 100;
     public const int MaxStoreNameLength = 150;
+    public const int MaxSearchLength = 200;
 }
