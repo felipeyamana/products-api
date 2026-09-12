@@ -139,7 +139,7 @@ This preserves the main vertical-slice benefit—organizing business behavior ar
 
 ---
 
-## Run locally
+## Run locally (not really, most of the project requires available azure infrastructure)
 
 ### Option 1: Visual Studio / dotnet run
 
