@@ -1,12 +1,17 @@
 using ProductsApi.Data.Entities;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace ProductsApi.Data;
 
-public class AppDbContext : DbContext
+public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>
 {
     public DbSet<Cart> Carts => Set<Cart>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
+    public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<Order> Orders => Set<Order>();
+    public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<Product> Products => Set<Product>();
 
     public DbSet<Category> Categories => Set<Category>();
@@ -34,6 +39,9 @@ public class AppDbContext : DbContext
         ConfigureProductPrice(modelBuilder);
         ConfigureProductAttribute(modelBuilder);
         ConfigureRawProductImport(modelBuilder);
+        ConfigureCustomer(modelBuilder);
+        ConfigureOrder(modelBuilder);
+        ConfigureOrderItem(modelBuilder);
         ConfigureCart(modelBuilder);
         ConfigureCartItem(modelBuilder);
     }
@@ -60,6 +68,115 @@ public class AppDbContext : DbContext
         item.Property(x => x.UnitPriceAtAddition).HasPrecision(18, 2);
         item.Property(x => x.CurrencyAtAddition).HasMaxLength(3).IsRequired();
         // No product FK: deleted catalog products must remain visible in saved carts.
+    }
+
+    private static void ConfigureCustomer(ModelBuilder modelBuilder)
+    {
+        var customer = modelBuilder.Entity<Customer>();
+
+        customer.ToTable("Customers");
+        customer.HasKey(x => x.Id);
+        customer.Property(x => x.CreatedAtUtc).HasDefaultValueSql("SYSUTCDATETIME()");
+        customer.HasIndex(x => x.UserId)
+            .IsUnique()
+            .HasFilter("[UserId] IS NOT NULL");
+        customer.HasOne<ApplicationUser>()
+            .WithOne()
+            .HasForeignKey<Customer>(x => x.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureOrder(ModelBuilder modelBuilder)
+    {
+        var order = modelBuilder.Entity<Order>();
+
+        order.ToTable("Orders", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_Orders_Amounts",
+                "[Subtotal] >= 0 AND [DiscountTotal] >= 0 AND [ShippingTotal] >= 0 AND [TaxTotal] >= 0 AND [GrandTotal] >= 0");
+        });
+        order.HasKey(x => x.Id);
+        order.Property(x => x.PublicId)
+            .HasDefaultValueSql("NEWSEQUENTIALID()")
+            .ValueGeneratedOnAdd();
+        order.Property(x => x.Status)
+            .HasConversion<int>()
+            .HasDefaultValue(OrderStatus.Pending);
+        order.Property(x => x.CustomerEmail)
+            .HasMaxLength(320)
+            .IsRequired();
+        order.Property(x => x.RecipientName)
+            .HasMaxLength(200)
+            .IsRequired();
+        order.Property(x => x.ShippingAddressLine1)
+            .HasMaxLength(200)
+            .IsRequired();
+        order.Property(x => x.ShippingAddressLine2)
+            .HasMaxLength(200);
+        order.Property(x => x.ShippingCity)
+            .HasMaxLength(100)
+            .IsRequired();
+        order.Property(x => x.ShippingRegion)
+            .HasMaxLength(100)
+            .IsRequired();
+        order.Property(x => x.ShippingPostalCode)
+            .HasMaxLength(30)
+            .IsRequired();
+        order.Property(x => x.ShippingCountryCode)
+            .HasMaxLength(2)
+            .IsFixedLength()
+            .IsRequired();
+        order.Property(x => x.CurrencyCode)
+            .HasMaxLength(3)
+            .IsFixedLength()
+            .IsRequired();
+        order.Property(x => x.Subtotal).HasPrecision(18, 2);
+        order.Property(x => x.DiscountTotal).HasPrecision(18, 2);
+        order.Property(x => x.ShippingTotal).HasPrecision(18, 2);
+        order.Property(x => x.TaxTotal).HasPrecision(18, 2);
+        order.Property(x => x.GrandTotal).HasPrecision(18, 2);
+        order.Property(x => x.CreatedAtUtc).HasDefaultValueSql("SYSUTCDATETIME()");
+        order.Property(x => x.UpdatedAtUtc).HasDefaultValueSql("SYSUTCDATETIME()");
+        order.HasOne(x => x.Customer)
+            .WithMany(x => x.Orders)
+            .HasForeignKey(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.Restrict);
+        order.HasMany(x => x.Items)
+            .WithOne(x => x.Order)
+            .HasForeignKey(x => x.OrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+        order.HasIndex(x => x.PublicId).IsUnique();
+        order.HasIndex(x => new { x.CustomerId, x.CreatedAtUtc });
+        order.HasIndex(x => new { x.Status, x.CreatedAtUtc });
+    }
+
+    private static void ConfigureOrderItem(ModelBuilder modelBuilder)
+    {
+        var item = modelBuilder.Entity<OrderItem>();
+
+        item.ToTable("OrderItems", table =>
+        {
+            table.HasCheckConstraint("CK_OrderItems_Quantity", "[Quantity] BETWEEN 1 AND 999");
+            table.HasCheckConstraint(
+                "CK_OrderItems_Amounts",
+                "[UnitPrice] >= 0 AND [DiscountAmount] >= 0 AND [LineTotal] >= 0");
+        });
+        item.HasKey(x => x.Id);
+        item.Property(x => x.ProductName)
+            .HasMaxLength(500)
+            .IsRequired();
+        item.Property(x => x.ProductExternalId)
+            .HasMaxLength(100);
+        item.Property(x => x.UnitPrice).HasPrecision(18, 2);
+        item.Property(x => x.DiscountAmount).HasPrecision(18, 2);
+        item.Property(x => x.LineTotal).HasPrecision(18, 2);
+        item.HasOne(x => x.Product)
+            .WithMany()
+            .HasForeignKey(x => x.ProductId)
+            .OnDelete(DeleteBehavior.SetNull);
+        item.HasIndex(x => x.OrderId);
+        item.HasIndex(x => x.ProductId);
     }
 
     private static void ConfigureCategory(ModelBuilder modelBuilder)
