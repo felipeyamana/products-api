@@ -1,8 +1,8 @@
 using System.Net.Http.Json;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using ProductsApi.Controllers;
 using ProductsApi.Features.Auth.RegisterUser;
 using ProductsApi.Features.Auth.Shared;
@@ -64,10 +64,10 @@ public sealed class IdentityAuthTests(MsSqlContainerFixture fixture)
 
     private sealed class ProductsApiFactory(string connectionString) : WebApplicationFactory<Program>
     {
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        protected override IHost CreateHost(IHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
-            builder.ConfigureAppConfiguration((_, configuration) =>
+            builder.ConfigureHostConfiguration(configuration =>
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:DefaultConnection"] = connectionString,
@@ -84,6 +84,8 @@ public sealed class IdentityAuthTests(MsSqlContainerFixture fixture)
                     ["Redis:RegisterNullCacheWhenDisabled"] = "false",
                     ["Database:MigrateOnStartup"] = "false"
                 }));
+
+            return base.CreateHost(builder);
         }
     }
 }
