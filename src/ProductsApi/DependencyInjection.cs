@@ -140,6 +140,54 @@ public static class DependencyInjection
                 .RequireClaim("sub")
                 .RequireAssertion(context => HasScope(context.User, "cart:write")));
 
+            options.AddPolicy(AuthorizationPolicies.AddressesRead, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("CustomerUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "addresses:read")));
+
+            options.AddPolicy(AuthorizationPolicies.AddressesWrite, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("CustomerUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "addresses:write")));
+
+            options.AddPolicy(AuthorizationPolicies.CustomersRead, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("CustomerUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "customer:read")));
+
+            options.AddPolicy(AuthorizationPolicies.CustomersWrite, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("CustomerUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "customer:write")));
+
+            options.AddPolicy(AuthorizationPolicies.OrdersRead, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("OrderUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "orders:read")));
+
+            options.AddPolicy(AuthorizationPolicies.OrdersWrite, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("OrderUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "orders:write")));
+
             options.AddPolicy(AuthorizationPolicies.ProductsRead, policy =>
                 policy.RequireAuthenticatedUser());
 
@@ -336,6 +384,9 @@ public static class DependencyInjection
             ? GetIpPartitionKey(httpContext, policyName)
             : $"{policyName}:sub:{subject}";
     }
+
+    private static bool HasGuidSubject(ClaimsPrincipal user) =>
+        Guid.TryParse(user.FindFirst("sub")?.Value, out _);
 
     private static bool HasScope(ClaimsPrincipal user, string requiredScope) =>
         user.FindAll("scope")

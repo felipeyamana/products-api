@@ -5,11 +5,13 @@ public sealed class Order
     public long Id { get; set; }
     public Guid PublicId { get; set; }
     public long CustomerId { get; set; }
+    public Guid? CheckoutCartVersion { get; set; }
     public OrderStatus Status { get; set; } = OrderStatus.Pending;
     public string CustomerEmail { get; set; } = "";
     public string RecipientName { get; set; } = "";
     public string ShippingAddressLine1 { get; set; } = "";
     public string? ShippingAddressLine2 { get; set; }
+    public string? ShippingPhoneNumber { get; set; }
     public string ShippingCity { get; set; } = "";
     public string ShippingRegion { get; set; } = "";
     public string ShippingPostalCode { get; set; } = "";

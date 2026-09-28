@@ -10,6 +10,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
     public DbSet<Cart> Carts => Set<Cart>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
     public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<CustomerAddress> CustomerAddresses => Set<CustomerAddress>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<Product> Products => Set<Product>();
@@ -40,6 +41,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         ConfigureProductAttribute(modelBuilder);
         ConfigureRawProductImport(modelBuilder);
         ConfigureCustomer(modelBuilder);
+        ConfigureCustomerAddress(modelBuilder);
         ConfigureOrder(modelBuilder);
         ConfigureOrderItem(modelBuilder);
         ConfigureCart(modelBuilder);
@@ -76,7 +78,12 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
 
         customer.ToTable("Customers");
         customer.HasKey(x => x.Id);
+        customer.Property(x => x.FirstName).HasMaxLength(100);
+        customer.Property(x => x.LastName).HasMaxLength(100);
+        customer.Property(x => x.PhoneNumber).HasMaxLength(32);
         customer.Property(x => x.CreatedAtUtc).HasDefaultValueSql("SYSUTCDATETIME()");
+        customer.Property(x => x.UpdatedAtUtc).HasDefaultValueSql("SYSUTCDATETIME()");
+        customer.Property(x => x.RowVersion).IsRowVersion();
         customer.HasIndex(x => x.UserId)
             .IsUnique()
             .HasFilter("[UserId] IS NOT NULL");
@@ -84,6 +91,70 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
             .WithOne()
             .HasForeignKey<Customer>(x => x.UserId)
             .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureCustomerAddress(ModelBuilder modelBuilder)
+    {
+        var address = modelBuilder.Entity<CustomerAddress>();
+
+        address.ToTable("CustomerAddresses", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_CustomerAddresses_RequiredFields",
+                "LEN(LTRIM(RTRIM([RecipientName]))) > 0 " +
+                "AND LEN(LTRIM(RTRIM([AddressLine1]))) > 0 " +
+                "AND LEN(LTRIM(RTRIM([City]))) > 0 " +
+                "AND LEN(LTRIM(RTRIM([Region]))) > 0 " +
+                "AND LEN(LTRIM(RTRIM([PostalCode]))) > 0 " +
+                "AND LEN(LTRIM(RTRIM([CountryCode]))) = 2");
+        });
+        address.HasKey(x => x.Id);
+        address.Property(x => x.PublicId)
+            .HasDefaultValueSql("NEWSEQUENTIALID()")
+            .ValueGeneratedOnAdd();
+        address.Property(x => x.Label)
+            .HasMaxLength(50);
+        address.Property(x => x.RecipientName)
+            .HasMaxLength(200)
+            .IsRequired();
+        address.Property(x => x.PhoneNumber)
+            .HasMaxLength(32);
+        address.Property(x => x.AddressLine1)
+            .HasMaxLength(200)
+            .IsRequired();
+        address.Property(x => x.AddressLine2)
+            .HasMaxLength(200);
+        address.Property(x => x.City)
+            .HasMaxLength(100)
+            .IsRequired();
+        address.Property(x => x.Region)
+            .HasMaxLength(100)
+            .IsRequired();
+        address.Property(x => x.PostalCode)
+            .HasMaxLength(30)
+            .IsRequired();
+        address.Property(x => x.CountryCode)
+            .HasMaxLength(2)
+            .IsFixedLength()
+            .IsRequired();
+        address.Property(x => x.IsDefault)
+            .HasDefaultValue(false);
+        address.Property(x => x.CreatedAtUtc)
+            .HasDefaultValueSql("SYSUTCDATETIME()");
+        address.Property(x => x.UpdatedAtUtc)
+            .HasDefaultValueSql("SYSUTCDATETIME()");
+        address.Property(x => x.RowVersion)
+            .IsRowVersion();
+        address.HasOne(x => x.Customer)
+            .WithMany(x => x.Addresses)
+            .HasForeignKey(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.Cascade);
+        address.HasIndex(x => x.PublicId)
+            .IsUnique();
+        address.HasIndex(x => new { x.CustomerId, x.CreatedAtUtc });
+        address.HasIndex(x => x.CustomerId)
+            .IsUnique()
+            .HasFilter("[IsDefault] = 1");
     }
 
     private static void ConfigureOrder(ModelBuilder modelBuilder)
@@ -114,6 +185,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
             .IsRequired();
         order.Property(x => x.ShippingAddressLine2)
             .HasMaxLength(200);
+        order.Property(x => x.ShippingPhoneNumber)
+            .HasMaxLength(32);
         order.Property(x => x.ShippingCity)
             .HasMaxLength(100)
             .IsRequired();
@@ -147,6 +220,9 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
             .HasForeignKey(x => x.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
         order.HasIndex(x => x.PublicId).IsUnique();
+        order.HasIndex(x => new { x.CustomerId, x.CheckoutCartVersion })
+            .IsUnique()
+            .HasFilter("[CheckoutCartVersion] IS NOT NULL");
         order.HasIndex(x => new { x.CustomerId, x.CreatedAtUtc });
         order.HasIndex(x => new { x.Status, x.CreatedAtUtc });
     }
