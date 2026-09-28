@@ -20,31 +20,31 @@ public sealed record CustomerAddressDto(
     byte[] Version);
 
 public sealed record CreateCustomerAddressRequest(
-    [property: MaxLength(50)] string? Label,
-    [property: Required, MaxLength(200)] string RecipientName,
-    [property: MaxLength(32)] string? PhoneNumber,
-    [property: Required, MaxLength(200)] string AddressLine1,
-    [property: MaxLength(200)] string? AddressLine2,
-    [property: Required, MaxLength(100)] string City,
-    [property: Required, MaxLength(100)] string Region,
-    [property: Required, MaxLength(30)] string PostalCode,
-    [property: Required, RegularExpression("^[A-Za-z]{2}$")] string CountryCode,
+    [MaxLength(50)] string? Label,
+    [Required, MaxLength(200)] string RecipientName,
+    [MaxLength(32)] string? PhoneNumber,
+    [Required, MaxLength(200)] string AddressLine1,
+    [MaxLength(200)] string? AddressLine2,
+    [Required, MaxLength(100)] string City,
+    [Required, MaxLength(100)] string Region,
+    [Required, MaxLength(30)] string PostalCode,
+    [Required, RegularExpression("^[A-Za-z]{2}$")] string CountryCode,
     bool IsDefault = false);
 
 public sealed record UpdateCustomerAddressRequest(
-    [property: MaxLength(50)] string? Label,
-    [property: Required, MaxLength(200)] string RecipientName,
-    [property: MaxLength(32)] string? PhoneNumber,
-    [property: Required, MaxLength(200)] string AddressLine1,
-    [property: MaxLength(200)] string? AddressLine2,
-    [property: Required, MaxLength(100)] string City,
-    [property: Required, MaxLength(100)] string Region,
-    [property: Required, MaxLength(30)] string PostalCode,
-    [property: Required, RegularExpression("^[A-Za-z]{2}$")] string CountryCode,
-    [property: Required, MinLength(8), MaxLength(8)] byte[] Version);
+    [MaxLength(50)] string? Label,
+    [Required, MaxLength(200)] string RecipientName,
+    [MaxLength(32)] string? PhoneNumber,
+    [Required, MaxLength(200)] string AddressLine1,
+    [MaxLength(200)] string? AddressLine2,
+    [Required, MaxLength(100)] string City,
+    [Required, MaxLength(100)] string Region,
+    [Required, MaxLength(30)] string PostalCode,
+    [Required, RegularExpression("^[A-Za-z]{2}$")] string CountryCode,
+    [Required, MinLength(8), MaxLength(8)] byte[] Version);
 
 public sealed record SetDefaultCustomerAddressRequest(
-    [property: Required, MinLength(8), MaxLength(8)] byte[] Version);
+    [Required, MinLength(8), MaxLength(8)] byte[] Version);
 
 public enum CustomerAddressFailureKind
 {

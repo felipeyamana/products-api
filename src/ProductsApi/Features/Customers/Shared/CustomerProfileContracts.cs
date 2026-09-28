@@ -12,10 +12,10 @@ public sealed record CustomerProfileDto(
     byte[] Version);
 
 public sealed record UpdateCustomerProfileRequest(
-    [property: MaxLength(100)] string? FirstName,
-    [property: MaxLength(100)] string? LastName,
-    [property: MaxLength(32)] string? PhoneNumber,
-    [property: Required, MinLength(8), MaxLength(8)] byte[] Version);
+    [MaxLength(100)] string? FirstName,
+    [MaxLength(100)] string? LastName,
+    [MaxLength(32)] string? PhoneNumber,
+    [Required, MinLength(8), MaxLength(8)] byte[] Version);
 
 public enum CustomerProfileFailureKind
 {
