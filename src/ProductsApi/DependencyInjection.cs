@@ -1,15 +1,19 @@
-using ProductsApi.Common.Cqrs;
-using ProductsApi.Caching;
-using Microsoft.EntityFrameworkCore;
-using ProductsApi.Data;
-using ProductsApi.Security;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
-using StackExchange.Redis;
-using System.Text;
-using System.Reflection;
 using System.Globalization;
+using System.Reflection;
+using System.Security.Claims;
+using System.Text;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using ProductsApi.Caching;
+using ProductsApi.Common.Cqrs;
+using ProductsApi.Data;
+using ProductsApi.Data.Entities;
+using ProductsApi.Features.Cart;
+using ProductsApi.Security;
+using StackExchange.Redis;
 
 namespace ProductsApi;
 
@@ -17,45 +21,66 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddProductsApi(
         this IServiceCollection services,
-        IConfiguration configuration,
-        IWebHostEnvironment environment)
+        IConfiguration configuration)
+    {
+        var jwtOptions = GetJwtOptions(configuration);
+        var ecommerceJwtOptions = GetECommerceJwtOptions(configuration);
+
+        services.AddProductsData(configuration);
+        services.AddProductsIdentity();
+        services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
+        services.AddProductsAuthentication(jwtOptions, ecommerceJwtOptions);
+        services.AddProductsAuthorization();
+        services.AddProductsRateLimiting(jwtOptions.ApiKey);
+        services.AddProductFeatures();
+        services.AddProductCaching(configuration);
+
+        return services;
+    }
+
+    private static IServiceCollection AddProductsData(
+        this IServiceCollection services,
+        IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException(
                 "Connection string 'DefaultConnection' was not configured. " +
                 "Set ConnectionStrings__DefaultConnection in the environment.");
-        var jwtOptions = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
-            ?? throw new InvalidOperationException(
-                "JWT settings were not configured. Set Jwt__Issuer, Jwt__Audience, Jwt__Key, and Jwt__ApiKey in the environment.");
-        var ecommerceJwtOptions = configuration.GetSection(ECommerceJwtOptions.SectionName).Get<ECommerceJwtOptions>()
-            ?? throw new InvalidOperationException(
-                "ECommerce JWT settings were not configured. Set ECommerceJwt__Issuer, ECommerceJwt__Audience, ECommerceJwt__PublicKey, and ECommerceJwt__KeyId.");
-
-        if (string.IsNullOrWhiteSpace(jwtOptions.Issuer) ||
-            string.IsNullOrWhiteSpace(jwtOptions.Audience) ||
-            string.IsNullOrWhiteSpace(jwtOptions.Key) ||
-            string.IsNullOrWhiteSpace(jwtOptions.ApiKey))
-        {
-            throw new InvalidOperationException(
-                "JWT settings are incomplete. Set Jwt__Issuer, Jwt__Audience, Jwt__Key, and Jwt__ApiKey in the environment.");
-        }
-
-        if (string.IsNullOrWhiteSpace(ecommerceJwtOptions.Issuer) ||
-            string.IsNullOrWhiteSpace(ecommerceJwtOptions.Audience) ||
-            string.IsNullOrWhiteSpace(ecommerceJwtOptions.PublicKey) ||
-            string.IsNullOrWhiteSpace(ecommerceJwtOptions.KeyId))
-        {
-            throw new InvalidOperationException(
-                "ECommerce JWT settings are incomplete. Set ECommerceJwt__Issuer, ECommerceJwt__Audience, ECommerceJwt__PublicKey, and ECommerceJwt__KeyId.");
-        }
-
-        var ecommerceSigningKey = ecommerceJwtOptions.CreateSecurityKey();
 
         services.AddDbContext<AppDbContext>(options =>
             options.UseSqlServer(
                 connectionString,
                 sqlOptions => sqlOptions.EnableRetryOnFailure()));
-        services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
+
+        return services;
+    }
+
+    private static IServiceCollection AddProductsIdentity(this IServiceCollection services)
+    {
+        services
+            .AddIdentityCore<ApplicationUser>(options =>
+            {
+                options.User.RequireUniqueEmail = true;
+                options.Password.RequiredLength = 8;
+                options.Password.RequireNonAlphanumeric = false;
+                options.Lockout.AllowedForNewUsers = true;
+                options.Lockout.MaxFailedAccessAttempts = 5;
+                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+            })
+            .AddRoles<IdentityRole<Guid>>()
+            .AddEntityFrameworkStores<AppDbContext>()
+            .AddSignInManager();
+
+        return services;
+    }
+
+    private static IServiceCollection AddProductsAuthentication(
+        this IServiceCollection services,
+        JwtOptions jwtOptions,
+        ECommerceJwtOptions ecommerceJwtOptions)
+    {
+        var ecommerceSigningKey = ecommerceJwtOptions.CreateSecurityKey();
+
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
@@ -93,6 +118,12 @@ public static class DependencyInjection
                     RoleClaimType = "role"
                 };
             });
+
+        return services;
+    }
+
+    private static IServiceCollection AddProductsAuthorization(this IServiceCollection services)
+    {
         services.AddAuthorization(options =>
         {
             options.AddPolicy(AuthorizationPolicies.CartRead, policy => policy
@@ -101,18 +132,76 @@ public static class DependencyInjection
                 .RequireRole("CartUser")
                 .RequireClaim("sub")
                 .RequireAssertion(context => HasScope(context.User, "cart:read")));
+
             options.AddPolicy(AuthorizationPolicies.CartWrite, policy => policy
                 .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
                 .RequireAuthenticatedUser()
                 .RequireRole("CartUser")
                 .RequireClaim("sub")
                 .RequireAssertion(context => HasScope(context.User, "cart:write")));
+
+            options.AddPolicy(AuthorizationPolicies.AddressesRead, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("CustomerUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "addresses:read")));
+
+            options.AddPolicy(AuthorizationPolicies.AddressesWrite, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("CustomerUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "addresses:write")));
+
+            options.AddPolicy(AuthorizationPolicies.CustomersRead, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("CustomerUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "customer:read")));
+
+            options.AddPolicy(AuthorizationPolicies.CustomersWrite, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("CustomerUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "customer:write")));
+
+            options.AddPolicy(AuthorizationPolicies.OrdersRead, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("OrderUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "orders:read")));
+
+            options.AddPolicy(AuthorizationPolicies.OrdersWrite, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("OrderUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "orders:write")));
+
             options.AddPolicy(AuthorizationPolicies.ProductsRead, policy =>
                 policy.RequireAuthenticatedUser());
 
             options.AddPolicy(AuthorizationPolicies.ProductsWrite, policy =>
                 policy.RequireRole("Admin", "ProductManager"));
         });
+
+        return services;
+    }
+
+    private static IServiceCollection AddProductsRateLimiting(
+        this IServiceCollection services,
+        string apiKey)
+    {
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -131,7 +220,7 @@ public static class DependencyInjection
 
             options.AddPolicy(RateLimitPolicies.Auth, httpContext =>
                 RateLimitPartition.GetFixedWindowLimiter(
-                    GetIpPartitionKey(httpContext, "auth"),
+                    GetAuthPartitionKey(httpContext, apiKey),
                     _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = 3,
@@ -152,32 +241,34 @@ public static class DependencyInjection
                     }));
         });
 
+        return services;
+    }
+
+    private static IServiceCollection AddProductFeatures(this IServiceCollection services)
+    {
         services.AddScoped<ICommandDispatcher, CommandDispatcher>();
-        services.AddScoped<ProductsApi.Features.Cart.CartLockManager>();
-        services.AddScoped<ProductsApi.Features.Cart.CartService>();
         services.AddScoped<IQueryDispatcher, QueryDispatcher>();
+        services.AddScoped<CartLockManager>();
+        services.AddScoped<CartService>();
 
         services.Scan(scan => scan
             .FromAssemblies(Assembly.GetExecutingAssembly())
-            .AddClasses(c => c.AssignableTo(typeof(ICommandHandler<>)))
+            .AddClasses(classes => classes.AssignableTo(typeof(ICommandHandler<>)))
                 .AsImplementedInterfaces()
                 .WithScopedLifetime()
-            .AddClasses(c => c.AssignableTo(typeof(ICommandHandler<,>)))
+            .AddClasses(classes => classes.AssignableTo(typeof(ICommandHandler<,>)))
                 .AsImplementedInterfaces()
                 .WithScopedLifetime()
-            .AddClasses(c => c.AssignableTo(typeof(IQueryHandler<,>)))
+            .AddClasses(classes => classes.AssignableTo(typeof(IQueryHandler<,>)))
                 .AsImplementedInterfaces()
                 .WithScopedLifetime());
-
-        services.AddProductCaching(configuration, environment);
 
         return services;
     }
 
     private static IServiceCollection AddProductCaching(
         this IServiceCollection services,
-        IConfiguration configuration,
-        IWebHostEnvironment environment)
+        IConfiguration configuration)
     {
         var redisOptions = configuration.GetSection(RedisOptions.SectionName).Get<RedisOptions>();
 
@@ -186,8 +277,7 @@ public static class DependencyInjection
             return services;
         }
 
-        var shouldUseRedis = redisOptions.Enabled;
-        if (!shouldUseRedis || string.IsNullOrWhiteSpace(redisOptions.ConnectionString))
+        if (!redisOptions.Enabled || string.IsNullOrWhiteSpace(redisOptions.ConnectionString))
         {
             if (redisOptions.RegisterNullCacheWhenDisabled)
             {
@@ -202,7 +292,6 @@ public static class DependencyInjection
         {
             configurationOptions = ConfigurationOptions.Parse(redisOptions.ConnectionString);
             configurationOptions.AbortOnConnectFail = false;
-
             configurationOptions.ConnectTimeout = redisOptions.ConnectTimeoutMilliseconds;
             configurationOptions.SyncTimeout = redisOptions.SyncTimeoutMilliseconds;
             configurationOptions.AsyncTimeout = redisOptions.AsyncTimeoutMilliseconds;
@@ -229,10 +318,63 @@ public static class DependencyInjection
         return services;
     }
 
+    private static JwtOptions GetJwtOptions(IConfiguration configuration)
+    {
+        var options = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
+            ?? throw new InvalidOperationException(
+                "JWT settings were not configured. Set Jwt__Issuer, Jwt__Audience, Jwt__Key, and Jwt__ApiKey in the environment.");
+
+        if (string.IsNullOrWhiteSpace(options.Issuer) ||
+            string.IsNullOrWhiteSpace(options.Audience) ||
+            string.IsNullOrWhiteSpace(options.Key) ||
+            string.IsNullOrWhiteSpace(options.ApiKey))
+        {
+            throw new InvalidOperationException(
+                "JWT settings are incomplete. Set Jwt__Issuer, Jwt__Audience, Jwt__Key, and Jwt__ApiKey in the environment.");
+        }
+
+        return options;
+    }
+
+    private static ECommerceJwtOptions GetECommerceJwtOptions(IConfiguration configuration)
+    {
+        var options = configuration.GetSection(ECommerceJwtOptions.SectionName).Get<ECommerceJwtOptions>()
+            ?? throw new InvalidOperationException(
+                "ECommerce JWT settings were not configured. Set ECommerceJwt__Issuer, ECommerceJwt__Audience, ECommerceJwt__PublicKey, and ECommerceJwt__KeyId.");
+
+        if (string.IsNullOrWhiteSpace(options.Issuer) ||
+            string.IsNullOrWhiteSpace(options.Audience) ||
+            string.IsNullOrWhiteSpace(options.PublicKey) ||
+            string.IsNullOrWhiteSpace(options.KeyId))
+        {
+            throw new InvalidOperationException(
+                "ECommerce JWT settings are incomplete. Set ECommerceJwt__Issuer, ECommerceJwt__Audience, ECommerceJwt__PublicKey, and ECommerceJwt__KeyId.");
+        }
+
+        return options;
+    }
+
     private static string GetIpPartitionKey(HttpContext httpContext, string policyName)
     {
         var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         return $"{policyName}:ip:{remoteIp}";
+    }
+
+    private static string GetAuthPartitionKey(HttpContext httpContext, string apiKey)
+    {
+        var hasTrustedCaller =
+            httpContext.Request.Headers.TryGetValue("X-API-Key", out var suppliedApiKey) &&
+            StringComparer.Ordinal.Equals(suppliedApiKey.ToString(), apiKey);
+        var clientIp = httpContext.Request.Headers["X-Client-IP"].ToString();
+
+        if (hasTrustedCaller &&
+            !string.IsNullOrWhiteSpace(clientIp) &&
+            clientIp.Length <= 64)
+        {
+            return $"auth:client-ip:{clientIp}";
+        }
+
+        return GetIpPartitionKey(httpContext, "auth");
     }
 
     private static string GetUserPartitionKey(HttpContext httpContext, string policyName)
@@ -243,7 +385,10 @@ public static class DependencyInjection
             : $"{policyName}:sub:{subject}";
     }
 
-    private static bool HasScope(System.Security.Claims.ClaimsPrincipal user, string requiredScope) =>
+    private static bool HasGuidSubject(ClaimsPrincipal user) =>
+        Guid.TryParse(user.FindFirst("sub")?.Value, out _);
+
+    private static bool HasScope(ClaimsPrincipal user, string requiredScope) =>
         user.FindAll("scope")
             .SelectMany(claim => claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             .Contains(requiredScope, StringComparer.Ordinal);

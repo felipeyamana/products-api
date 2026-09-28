@@ -24,7 +24,8 @@ internal static class TestECommerceJwt
     public static string CreateToken(
         string subject,
         string scope,
-        string keyId = KeyId)
+        string keyId = KeyId,
+        string role = "CartUser")
     {
         using var rsa = RSA.Create();
         rsa.ImportPkcs8PrivateKey(PrivateKey, out _);
@@ -39,7 +40,7 @@ internal static class TestECommerceJwt
             Audience,
             [
                 new Claim(JwtRegisteredClaimNames.Sub, subject),
-                new Claim("role", "CartUser"),
+                new Claim("role", role),
                 new Claim("scope", scope)
             ],
             now,
