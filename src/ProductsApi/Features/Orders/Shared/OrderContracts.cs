@@ -5,7 +5,7 @@ namespace ProductsApi.Features.Orders.Shared;
 
 public sealed record CreateOrderRequest(
     Guid AddressId,
-    [property: Required] Guid? CartVersion);
+    [Required] Guid? CartVersion);
 
 public sealed record OrderSummaryDto(
     Guid Id,
