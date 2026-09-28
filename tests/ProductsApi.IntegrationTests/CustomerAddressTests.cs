@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using ProductsApi.Data.Entities;
 using ProductsApi.Features.CustomerAddresses.Shared;
 using Xunit;
@@ -193,10 +193,10 @@ public sealed class CustomerAddressTests(MsSqlContainerFixture fixture) : IAsync
     private sealed class AddressFactory(string connectionString)
         : WebApplicationFactory<Program>
     {
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        protected override IHost CreateHost(IHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
-            builder.ConfigureAppConfiguration((_, configuration) =>
+            builder.ConfigureHostConfiguration(configuration =>
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:DefaultConnection"] = connectionString,
@@ -213,6 +213,8 @@ public sealed class CustomerAddressTests(MsSqlContainerFixture fixture) : IAsync
                     ["ECommerceJwt:KeyId"] = TestECommerceJwt.KeyId,
                     ["Redis:Enabled"] = "false"
                 }));
+
+            return base.CreateHost(builder);
         }
     }
 }
