@@ -80,7 +80,13 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         customer.HasKey(x => x.Id);
         customer.Property(x => x.FirstName).HasMaxLength(100);
         customer.Property(x => x.LastName).HasMaxLength(100);
-        customer.Property(x => x.PhoneNumber).HasMaxLength(32);
+        customer.Property(x => x.PhoneNumberE164)
+            .HasMaxLength(16)
+            .IsUnicode(false);
+        customer.Property(x => x.PhoneRegionCode)
+            .HasMaxLength(2)
+            .IsFixedLength()
+            .IsUnicode(false);
         customer.Property(x => x.CreatedAtUtc).HasDefaultValueSql("SYSUTCDATETIME()");
         customer.Property(x => x.UpdatedAtUtc).HasDefaultValueSql("SYSUTCDATETIME()");
         customer.Property(x => x.RowVersion).IsRowVersion();
@@ -187,6 +193,10 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
             .HasMaxLength(200);
         order.Property(x => x.ShippingPhoneNumber)
             .HasMaxLength(32);
+        order.Property(x => x.ShippingPhoneRegionCode)
+            .HasMaxLength(2)
+            .IsFixedLength()
+            .IsUnicode(false);
         order.Property(x => x.ShippingCity)
             .HasMaxLength(100)
             .IsRequired();

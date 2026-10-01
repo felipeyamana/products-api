@@ -34,6 +34,7 @@ public sealed record OrderItemDto(
 public sealed record OrderShippingAddressDto(
     string RecipientName,
     string? PhoneNumber,
+    string? PhoneRegionCode,
     string AddressLine1,
     string? AddressLine2,
     string City,
@@ -94,6 +95,7 @@ internal static class OrderMapper
             new OrderShippingAddressDto(
                 order.RecipientName,
                 order.ShippingPhoneNumber,
+                order.ShippingPhoneRegionCode,
                 order.ShippingAddressLine1,
                 order.ShippingAddressLine2,
                 order.ShippingCity,
