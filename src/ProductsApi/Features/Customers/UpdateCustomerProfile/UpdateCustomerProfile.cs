@@ -81,7 +81,8 @@ public sealed class UpdateCustomerProfileHandler(AppDbContext dbContext)
     {
         customer.FirstName = Optional(request.FirstName);
         customer.LastName = Optional(request.LastName);
-        customer.PhoneNumber = Optional(request.PhoneNumber);
+        customer.PhoneNumberE164 = Optional(request.PhoneNumber);
+        customer.PhoneRegionCode = Optional(request.PhoneRegionCode)?.ToUpperInvariant();
         customer.UpdatedAtUtc = DateTime.UtcNow;
     }
 
@@ -90,7 +91,8 @@ public sealed class UpdateCustomerProfileHandler(AppDbContext dbContext)
             email,
             customer.FirstName,
             customer.LastName,
-            customer.PhoneNumber,
+            customer.PhoneNumberE164,
+            customer.PhoneRegionCode,
             customer.CreatedAtUtc,
             customer.UpdatedAtUtc,
             [.. customer.RowVersion]);

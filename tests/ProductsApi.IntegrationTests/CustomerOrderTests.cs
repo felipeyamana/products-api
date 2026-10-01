@@ -46,10 +46,21 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
         Assert.NotNull(profile);
         Assert.Equal(data.Email, profile.Email);
 
+        var incompletePhoneResponse = await client.PutAsJsonAsync(
+            "/api/customers/me",
+            new UpdateCustomerProfileRequest(
+                "Felipe",
+                "Customer",
+                "+5511999990000",
+                null,
+                profile.Version));
+        Assert.Equal(HttpStatusCode.BadRequest, incompletePhoneResponse.StatusCode);
+
         var update = new UpdateCustomerProfileRequest(
             "  Felipe ",
             " Customer  ",
-            "+55 11 99999-0000",
+            "+5511999990000",
+            "br",
             profile.Version);
         var updateResponse = await client.PutAsJsonAsync(
             "/api/customers/me",
@@ -60,6 +71,8 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
             (await updateResponse.Content.ReadFromJsonAsync<CustomerProfileDto>())!;
         Assert.Equal("Felipe", updated.FirstName);
         Assert.Equal("Customer", updated.LastName);
+        Assert.Equal("+5511999990000", updated.PhoneNumber);
+        Assert.Equal("BR", updated.PhoneRegionCode);
 
         var staleResponse = await client.PutAsJsonAsync(
             "/api/customers/me",
@@ -88,6 +101,8 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
         Assert.Equal("Pending", order.Status);
         Assert.Equal(data.Email, order.CustomerEmail);
         Assert.Equal("Home recipient", order.ShippingAddress.RecipientName);
+        Assert.Equal("+5511999990000", order.ShippingAddress.PhoneNumber);
+        Assert.Equal("BR", order.ShippingAddress.PhoneRegionCode);
         Assert.Equal(50m, order.GrandTotal);
         Assert.Equal(2, Assert.Single(order.Items).Quantity);
 
@@ -139,6 +154,8 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
 
         var customer = await db.Customers.SingleAsync(
             item => item.UserId == userId);
+        customer.PhoneNumberE164 = "+5511999990000";
+        customer.PhoneRegionCode = "BR";
         var address = new CustomerAddress
         {
             CustomerId = customer.Id,

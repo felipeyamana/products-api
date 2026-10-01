@@ -12,6 +12,7 @@ public sealed class Order
     public string ShippingAddressLine1 { get; set; } = "";
     public string? ShippingAddressLine2 { get; set; }
     public string? ShippingPhoneNumber { get; set; }
+    public string? ShippingPhoneRegionCode { get; set; }
     public string ShippingCity { get; set; } = "";
     public string ShippingRegion { get; set; } = "";
     public string ShippingPostalCode { get; set; } = "";

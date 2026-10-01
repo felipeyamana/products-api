@@ -45,9 +45,6 @@ public sealed class CreateOrderHandler(
         CancellationToken cancellationToken)
     {
         dbContext.ChangeTracker.Clear();
-        await using var transaction = await cartLockManager.AcquireAsync(
-            command.CartUserId,
-            cancellationToken);
         var customer = await LoadCustomerAsync(
             command.UserId,
             cancellationToken);
@@ -58,6 +55,14 @@ public sealed class CreateOrderHandler(
                 "Customer record not found.");
         }
 
+        var address = await LoadAddressAsync(
+            customer.Id,
+            command.Request.AddressId,
+            cancellationToken);
+
+        await using var transaction = await cartLockManager.AcquireAsync(
+            command.CartUserId,
+            cancellationToken);
         var cartVersion = command.Request.CartVersion!.Value;
         var existingOrder = await LoadExistingOrderAsync(
             customer.Id,
@@ -78,11 +83,6 @@ public sealed class CreateOrderHandler(
         {
             return cartError;
         }
-
-        var address = await LoadAddressAsync(
-            customer.Id,
-            command.Request.AddressId,
-            cancellationToken);
 
         if (address is null)
         {
@@ -141,7 +141,9 @@ public sealed class CreateOrderHandler(
                 user => (Guid?)user.Id,
                 (customer, user) => new CustomerContext(
                     customer.Id,
-                    user.Email!))
+                    user.Email!,
+                    customer.PhoneNumberE164,
+                    customer.PhoneRegionCode))
             .SingleOrDefaultAsync(cancellationToken);
 
     private Task<Order?> LoadExistingOrderAsync(
@@ -274,7 +276,8 @@ public sealed class CreateOrderHandler(
             Status = OrderStatus.Pending,
             CustomerEmail = customer.Email,
             RecipientName = address.RecipientName,
-            ShippingPhoneNumber = address.PhoneNumber,
+            ShippingPhoneNumber = customer.PhoneNumber,
+            ShippingPhoneRegionCode = customer.PhoneRegionCode,
             ShippingAddressLine1 = address.AddressLine1,
             ShippingAddressLine2 = address.AddressLine2,
             ShippingCity = address.City,
@@ -333,7 +336,11 @@ public sealed class CreateOrderHandler(
         OrderResult<OrderDetailDto>.Conflict(
             "The cart changed. Refresh it and retry.");
 
-    private sealed record CustomerContext(long Id, string Email);
+    private sealed record CustomerContext(
+        long Id,
+        string Email,
+        string? PhoneNumber,
+        string? PhoneRegionCode);
 
     private sealed record PricedCart(
         string Currency,

@@ -24,7 +24,7 @@ public sealed class DeleteCustomerAddressHandler(AppDbContext dbContext)
         try
         {
             return await strategy.ExecuteAsync(
-                () => DeleteInTransactionAsync(command, cancellationToken));
+                () => DeleteAsync(command, cancellationToken));
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -36,15 +36,24 @@ public sealed class DeleteCustomerAddressHandler(AppDbContext dbContext)
         }
     }
 
-    private async Task<CustomerAddressResult<bool>> DeleteInTransactionAsync(
+    private async Task<CustomerAddressResult<bool>> DeleteAsync(
         DeleteCustomerAddressCommand command,
         CancellationToken cancellationToken)
     {
+        var customerId = await LoadCustomerIdAsync(
+            command.UserId,
+            cancellationToken);
+
+        if (customerId is null)
+        {
+            return CustomerAddressResult<bool>.NotFound("Address not found.");
+        }
+
         await using var transaction = await dbContext.Database.BeginTransactionAsync(
             IsolationLevel.Serializable,
             cancellationToken);
         var address = await LoadAddressAsync(
-            command.UserId,
+            customerId.Value,
             command.AddressId,
             cancellationToken);
 
@@ -65,14 +74,23 @@ public sealed class DeleteCustomerAddressHandler(AppDbContext dbContext)
         return CustomerAddressResult<bool>.Success(true);
     }
 
-    private Task<CustomerAddress?> LoadAddressAsync(
+    private Task<long?> LoadCustomerIdAsync(
         Guid userId,
+        CancellationToken cancellationToken) =>
+        dbContext.Customers
+            .AsNoTracking()
+            .Where(customer => customer.UserId == userId)
+            .Select(customer => (long?)customer.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+
+    private Task<CustomerAddress?> LoadAddressAsync(
+        long customerId,
         Guid addressId,
         CancellationToken cancellationToken) =>
         dbContext.CustomerAddresses.SingleOrDefaultAsync(
             address =>
                 address.PublicId == addressId &&
-                address.Customer.UserId == userId,
+                address.CustomerId == customerId,
             cancellationToken);
 
     private Task<CustomerAddress?> LoadReplacementAsync(

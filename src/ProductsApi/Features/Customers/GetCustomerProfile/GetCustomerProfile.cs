@@ -39,7 +39,8 @@ public sealed class GetCustomerProfileHandler(AppDbContext dbContext)
                     user.Email!,
                     customer.FirstName,
                     customer.LastName,
-                    customer.PhoneNumber,
+                    customer.PhoneNumberE164,
+                    customer.PhoneRegionCode,
                     customer.CreatedAtUtc,
                     customer.UpdatedAtUtc,
                     customer.RowVersion));
