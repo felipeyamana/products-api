@@ -23,7 +23,7 @@ public sealed class CreateCustomerAddressHandler(AppDbContext dbContext)
         try
         {
             return await strategy.ExecuteAsync(
-                () => CreateInTransactionAsync(command, cancellationToken));
+                () => CreateAsync(command, cancellationToken));
         }
         catch (DbUpdateException)
         {
@@ -31,25 +31,25 @@ public sealed class CreateCustomerAddressHandler(AppDbContext dbContext)
         }
     }
 
-    private async Task<CustomerAddressResult<CustomerAddressDto>> CreateInTransactionAsync(
+    private async Task<CustomerAddressResult<CustomerAddressDto>> CreateAsync(
         CreateCustomerAddressCommand command,
         CancellationToken cancellationToken)
     {
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(
-            IsolationLevel.Serializable,
-            cancellationToken);
-        var customer = await LoadCustomerAsync(
+        var customerId = await LoadCustomerIdAsync(
             command.UserId,
             cancellationToken);
 
-        if (customer is null)
+        if (customerId is null)
         {
             return CustomerAddressResult<CustomerAddressDto>
                 .NotFound("Customer record not found.");
         }
 
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken);
         var currentDefault = await LoadDefaultAddressAsync(
-            customer.Id,
+            customerId.Value,
             cancellationToken);
         var makeDefault = currentDefault is null || command.Request.IsDefault;
         var utcNow = DateTime.UtcNow;
@@ -60,7 +60,7 @@ public sealed class CreateCustomerAddressHandler(AppDbContext dbContext)
             utcNow,
             cancellationToken);
         var address = await CreateAddressAsync(
-            customer.Id,
+            customerId.Value,
             command.Request,
             makeDefault,
             utcNow,
@@ -71,12 +71,14 @@ public sealed class CreateCustomerAddressHandler(AppDbContext dbContext)
             CustomerAddressMapper.ToDto(address));
     }
 
-    private Task<Customer?> LoadCustomerAsync(
+    private Task<long?> LoadCustomerIdAsync(
         Guid userId,
         CancellationToken cancellationToken) =>
-        dbContext.Customers.SingleOrDefaultAsync(
-            customer => customer.UserId == userId,
-            cancellationToken);
+        dbContext.Customers
+            .AsNoTracking()
+            .Where(customer => customer.UserId == userId)
+            .Select(customer => (long?)customer.Id)
+            .SingleOrDefaultAsync(cancellationToken);
 
     private Task<CustomerAddress?> LoadDefaultAddressAsync(
         long customerId,

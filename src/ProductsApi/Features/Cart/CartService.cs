@@ -86,7 +86,7 @@ public sealed class CartService(AppDbContext db, CartLockManager lockManager)
         if (productId <= 0)
             return CartResult.BadRequest("Product ID must be positive.");
 
-        return await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        var outcome = await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
             db.ChangeTracker.Clear();
             await using var transaction = await lockManager.AcquireAsync(userId, cancellationToken);
@@ -94,11 +94,12 @@ public sealed class CartService(AppDbContext db, CartLockManager lockManager)
 
             var versionError = ValidateVersion(cart, version!.Value);
             if (versionError is not null)
-                return versionError;
+                return RemoveCartOutcome.Completed(versionError);
             if (cart is null)
             {
                 await transaction.CommitAsync(cancellationToken);
-                return CartResult.Success(CartMapper.EmptyCart);
+                return RemoveCartOutcome.Completed(
+                    CartResult.Success(CartMapper.EmptyCart));
             }
 
             var item = cart.Items.SingleOrDefault(x => x.ProductId == productId);
@@ -109,10 +110,18 @@ public sealed class CartService(AppDbContext db, CartLockManager lockManager)
                 await SaveCartAsync(cart, cancellationToken);
             }
 
-            var products = await LoadProductsAsync(cart.Items.Select(x => x.ProductId), cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return CartResult.Success(CartMapper.ToDto(cart, products));
+            return RemoveCartOutcome.Updated(cart);
         });
+
+        if (outcome.Result is not null)
+            return outcome.Result;
+
+        var updatedCart = outcome.Cart!;
+        var products = await LoadProductsAsync(
+            updatedCart.Items.Select(x => x.ProductId),
+            cancellationToken);
+        return CartResult.Success(CartMapper.ToDto(updatedCart, products));
     }
 
     public async Task<CartResult> ClearAsync(string userId, Guid? version,
@@ -246,5 +255,16 @@ public sealed class CartService(AppDbContext db, CartLockManager lockManager)
         requestedVersion != (cart?.Version ?? Guid.Empty)
             ? CartResult.Conflict("The cart changed. Refresh it and retry.")
             : null;
+
+    private sealed record RemoveCartOutcome(
+        CartResult? Result,
+        Data.Entities.Cart? Cart)
+    {
+        public static RemoveCartOutcome Completed(CartResult result) =>
+            new(result, null);
+
+        public static RemoveCartOutcome Updated(Data.Entities.Cart cart) =>
+            new(null, cart);
+    }
 
 }

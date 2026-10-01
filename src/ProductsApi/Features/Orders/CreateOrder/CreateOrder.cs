@@ -45,9 +45,6 @@ public sealed class CreateOrderHandler(
         CancellationToken cancellationToken)
     {
         dbContext.ChangeTracker.Clear();
-        await using var transaction = await cartLockManager.AcquireAsync(
-            command.CartUserId,
-            cancellationToken);
         var customer = await LoadCustomerAsync(
             command.UserId,
             cancellationToken);
@@ -58,6 +55,14 @@ public sealed class CreateOrderHandler(
                 "Customer record not found.");
         }
 
+        var address = await LoadAddressAsync(
+            customer.Id,
+            command.Request.AddressId,
+            cancellationToken);
+
+        await using var transaction = await cartLockManager.AcquireAsync(
+            command.CartUserId,
+            cancellationToken);
         var cartVersion = command.Request.CartVersion!.Value;
         var existingOrder = await LoadExistingOrderAsync(
             customer.Id,
@@ -78,11 +83,6 @@ public sealed class CreateOrderHandler(
         {
             return cartError;
         }
-
-        var address = await LoadAddressAsync(
-            customer.Id,
-            command.Request.AddressId,
-            cancellationToken);
 
         if (address is null)
         {

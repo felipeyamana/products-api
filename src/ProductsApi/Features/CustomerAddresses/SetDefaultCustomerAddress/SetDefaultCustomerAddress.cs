@@ -24,7 +24,7 @@ public sealed class SetDefaultCustomerAddressHandler(AppDbContext dbContext)
         try
         {
             return await strategy.ExecuteAsync(
-                () => SetDefaultInTransactionAsync(command, cancellationToken));
+                () => SetDefaultAsync(command, cancellationToken));
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -36,15 +36,24 @@ public sealed class SetDefaultCustomerAddressHandler(AppDbContext dbContext)
         }
     }
 
-    private async Task<CustomerAddressResult<CustomerAddressDto>> SetDefaultInTransactionAsync(
+    private async Task<CustomerAddressResult<CustomerAddressDto>> SetDefaultAsync(
         SetDefaultCustomerAddressCommand command,
         CancellationToken cancellationToken)
     {
+        var customerId = await LoadCustomerIdAsync(
+            command.UserId,
+            cancellationToken);
+
+        if (customerId is null)
+        {
+            return CustomerAddressResult<CustomerAddressDto>.NotFound("Address not found.");
+        }
+
         await using var transaction = await dbContext.Database.BeginTransactionAsync(
             IsolationLevel.Serializable,
             cancellationToken);
         var address = await LoadAddressAsync(
-            command.UserId,
+            customerId.Value,
             command.AddressId,
             cancellationToken);
 
@@ -71,14 +80,23 @@ public sealed class SetDefaultCustomerAddressHandler(AppDbContext dbContext)
             CustomerAddressMapper.ToDto(address));
     }
 
-    private Task<CustomerAddress?> LoadAddressAsync(
+    private Task<long?> LoadCustomerIdAsync(
         Guid userId,
+        CancellationToken cancellationToken) =>
+        dbContext.Customers
+            .AsNoTracking()
+            .Where(customer => customer.UserId == userId)
+            .Select(customer => (long?)customer.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+
+    private Task<CustomerAddress?> LoadAddressAsync(
+        long customerId,
         Guid addressId,
         CancellationToken cancellationToken) =>
         dbContext.CustomerAddresses.SingleOrDefaultAsync(
             address =>
                 address.PublicId == addressId &&
-                address.Customer.UserId == userId,
+                address.CustomerId == customerId,
             cancellationToken);
 
     private async Task ReplaceDefaultAsync(
