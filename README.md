@@ -359,6 +359,8 @@ ECommerceJwt__Issuer=ecommerce-api
 ECommerceJwt__Audience=products-api
 ECommerceJwt__PublicKey=<base64 SubjectPublicKeyInfo RSA public key>
 ECommerceJwt__KeyId=<key ID used by ECommerce in the JWT kid header>
+APPLICATIONINSIGHTS_CONNECTION_STRING=<Application Insights connection string>
+OTEL_SERVICE_NAME=products-api
 ```
 
 ### Optional production variables
@@ -395,6 +397,12 @@ RateLimiting__Products__QueueLimit=0
 `Auth` covers customer registration and login and is partitioned by the trusted forwarded client IP when available. `ServiceToken` covers `POST /api/auth/token` and is partitioned by the direct caller IP. `Products` covers product and category endpoints and is partitioned by the authenticated JWT subject, falling back to the direct caller IP for anonymous requests.
 
 Leave startup migrations disabled in production unless you deliberately want the API process to apply migrations.
+
+### Observability
+
+When `APPLICATIONINSIGHTS_CONNECTION_STRING` is configured, the API uses the Azure Monitor OpenTelemetry distribution to send incoming requests, SQL and HTTP dependencies, metrics, exceptions, and structured `ILogger` entries to Application Insights.
+
+Unhandled exceptions return an RFC 7807 problem response with a `traceId`. Automatic request-validation failures and rejected registrations are logged without request bodies, passwords, API keys, JWTs, or raw email addresses. Use the response `traceId` or the request's `OperationId` to correlate `AppRequests`, `AppTraces`, and `AppExceptions` in Application Insights.
 
 ---
 
