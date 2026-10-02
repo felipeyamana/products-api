@@ -10,7 +10,8 @@ namespace ProductsApi.Features.Auth.RegisterUser;
 
 public sealed class RegisterUserHandler(
     UserManager<ApplicationUser> users,
-    AppDbContext db) : ICommandHandler<RegisterUserCommand, RegisterUserResult>
+    AppDbContext db,
+    ILogger<RegisterUserHandler> logger) : ICommandHandler<RegisterUserCommand, RegisterUserResult>
 {
     public async Task<RegisterUserResult> Handle(
         RegisterUserCommand command,
@@ -20,6 +21,10 @@ public sealed class RegisterUserHandler(
 
         if (request.Password != request.ConfirmPassword)
         {
+            logger.LogWarning(
+                "Registration rejected with error codes {RegistrationErrorCodes}.",
+                "PasswordMismatch");
+
             return RegisterUserResult.Failed(
                 [new RegisterUserError("PasswordMismatch", "Passwords do not match.")]);
         }
@@ -57,6 +62,15 @@ public sealed class RegisterUserHandler(
 
         if (outcome.Errors is not null)
         {
+            var errorCodes = outcome.Errors
+                .Select(error => error.Code)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(code => code, StringComparer.Ordinal);
+
+            logger.LogWarning(
+                "Registration rejected with error codes {RegistrationErrorCodes}.",
+                string.Join(",", errorCodes));
+
             return RegisterUserResult.Failed(
                 outcome.Errors.Select(error => new RegisterUserError(error.Code, error.Description)));
         }
