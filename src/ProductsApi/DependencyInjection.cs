@@ -239,7 +239,7 @@ public static class DependencyInjection
                     GetAuthPartitionKey(httpContext, apiKey),
                     _ => new FixedWindowRateLimiterOptions
                     {
-                        PermitLimit = 3,
+                        PermitLimit = 5,
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
                         AutoReplenishment = true
@@ -250,7 +250,7 @@ public static class DependencyInjection
                     GetUserPartitionKey(httpContext, "products"),
                     _ => new FixedWindowRateLimiterOptions
                     {
-                        PermitLimit = 10,
+                        PermitLimit = 100,
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
                         AutoReplenishment = true
