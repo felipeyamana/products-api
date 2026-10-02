@@ -47,10 +47,52 @@ public class ProductsControllerTests
             .ReturnsAsync(Result<PagedProductsDto>.Ok(searchPage));
         var controller = CreateController(queryDispatcher: queryDispatcher, cache: cache);
 
-        var response = await controller.GetProducts(1, 30, " keyboard ", CancellationToken.None);
+        var response = await controller.GetProducts(
+            page: 1,
+            pageSize: 30,
+            search: " keyboard ",
+            cancellationToken: CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(response);
         Assert.Same(searchPage, okResult.Value);
+        Assert.Same(cachedPage, cache.PagedProducts);
+    }
+
+    [Fact]
+    public async Task GetProducts_WithCatalogOptions_ForwardsContractAndBypassesPageCache()
+    {
+        var cachedPage = new PagedProductsDto([CreateProduct(1)], 1, 30, 1, 1);
+        var filteredPage = new PagedProductsDto([CreateProduct(2)], 1, 12, 1, 1);
+        var cache = new TestProductCache { PagedProducts = cachedPage };
+        var queryDispatcher = new Mock<IQueryDispatcher>();
+        queryDispatcher
+            .Setup(x => x.Dispatch<GetPagedProductsQuery, Result<PagedProductsDto>>(
+                It.Is<GetPagedProductsQuery>(query =>
+                    query.CategoryId == 4 &&
+                    query.SubCategoryId == 9 &&
+                    query.Brands!.SequenceEqual(new[] { "Acme", "Contoso" }) &&
+                    query.MinPrice == 10m &&
+                    query.MaxPrice == 200m &&
+                    query.MinRating == 4m &&
+                    query.Sort == ProductCatalogSort.PriceDescending),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<PagedProductsDto>.Ok(filteredPage));
+        var controller = CreateController(queryDispatcher: queryDispatcher, cache: cache);
+
+        var response = await controller.GetProducts(
+            page: 1,
+            pageSize: 12,
+            categoryId: 4,
+            subCategoryId: 9,
+            brands: ["Acme", "Contoso"],
+            minPrice: 10m,
+            maxPrice: 200m,
+            minRating: 4m,
+            sort: ProductCatalogSort.PriceDescending,
+            cancellationToken: CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(response);
+        Assert.Same(filteredPage, okResult.Value);
         Assert.Same(cachedPage, cache.PagedProducts);
     }
 

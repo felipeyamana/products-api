@@ -34,12 +34,27 @@ public class ProductsController(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = ProductPaging.DefaultPageSize,
         [FromQuery] string? search = null,
+        [FromQuery] int? categoryId = null,
+        [FromQuery] int? subCategoryId = null,
+        [FromQuery] string[]? brands = null,
+        [FromQuery] decimal? minPrice = null,
+        [FromQuery] decimal? maxPrice = null,
+        [FromQuery] decimal? minRating = null,
+        [FromQuery] string? sort = null,
         CancellationToken cancellationToken = default)
     {
         var normalizedSearch = string.IsNullOrWhiteSpace(search)
             ? null
             : search.Trim();
-        var cachedProducts = _productCache is null || normalizedSearch is not null
+        var isUnfilteredDefaultRequest = normalizedSearch is null &&
+            categoryId is null &&
+            subCategoryId is null &&
+            (brands is null || brands.Length == 0) &&
+            minPrice is null &&
+            maxPrice is null &&
+            minRating is null &&
+            sort is null;
+        var cachedProducts = _productCache is null || !isUnfilteredDefaultRequest
             ? null
             : await _productCache.GetPagedProductsAsync(page, pageSize, cancellationToken);
         if (cachedProducts is not null)
@@ -48,7 +63,17 @@ public class ProductsController(
         }
 
         var result = await queryDispatcher.Dispatch<GetPagedProductsQuery, Result<PagedProductsDto>>(
-            new GetPagedProductsQuery(page, pageSize, normalizedSearch),
+            new GetPagedProductsQuery(
+                page,
+                pageSize,
+                normalizedSearch,
+                categoryId,
+                subCategoryId,
+                brands,
+                minPrice,
+                maxPrice,
+                minRating,
+                sort),
             cancellationToken);
 
         if (!result.IsSuccess)
@@ -56,7 +81,7 @@ public class ProductsController(
             return BadRequest(new ErrorResponse(result.Error!));
         }
 
-        if (_productCache is not null && normalizedSearch is null)
+        if (_productCache is not null && isUnfilteredDefaultRequest)
         {
             await _productCache.SetPagedProductsAsync(result.Value!, cancellationToken);
         }

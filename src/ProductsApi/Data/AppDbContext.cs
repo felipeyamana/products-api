@@ -11,6 +11,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
     public DbSet<CartItem> CartItems => Set<CartItem>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<CustomerAddress> CustomerAddresses => Set<CustomerAddress>();
+    public DbSet<CustomerFavorite> CustomerFavorites => Set<CustomerFavorite>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<Product> Products => Set<Product>();
@@ -42,6 +43,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         ConfigureRawProductImport(modelBuilder);
         ConfigureCustomer(modelBuilder);
         ConfigureCustomerAddress(modelBuilder);
+        ConfigureCustomerFavorite(modelBuilder);
         ConfigureOrder(modelBuilder);
         ConfigureOrderItem(modelBuilder);
         ConfigureCart(modelBuilder);
@@ -161,6 +163,25 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         address.HasIndex(x => x.CustomerId)
             .IsUnique()
             .HasFilter("[IsDefault] = 1");
+    }
+
+    private static void ConfigureCustomerFavorite(ModelBuilder modelBuilder)
+    {
+        var favorite = modelBuilder.Entity<CustomerFavorite>();
+
+        favorite.ToTable("CustomerFavorites");
+        favorite.HasKey(x => new { x.CustomerId, x.ProductId });
+        favorite.Property(x => x.CreatedAtUtc)
+            .HasDefaultValueSql("SYSUTCDATETIME()");
+        favorite.HasOne(x => x.Customer)
+            .WithMany(x => x.Favorites)
+            .HasForeignKey(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.Cascade);
+        favorite.HasOne(x => x.Product)
+            .WithMany()
+            .HasForeignKey(x => x.ProductId)
+            .OnDelete(DeleteBehavior.Cascade);
+        favorite.HasIndex(x => new { x.CustomerId, x.CreatedAtUtc });
     }
 
     private static void ConfigureOrder(ModelBuilder modelBuilder)

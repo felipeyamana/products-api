@@ -22,14 +22,17 @@ internal static class ProductMapper
         product.UpdatedAt,
         product.Prices
             .OrderByDescending(price => price.CapturedAt)
+            .ThenByDescending(price => price.Id)
             .Select(price => (decimal?)price.ActualPrice)
             .FirstOrDefault(),
         product.Prices
             .OrderByDescending(price => price.CapturedAt)
+            .ThenByDescending(price => price.Id)
             .Select(price => price.DiscountPrice)
             .FirstOrDefault(),
         product.Prices
             .OrderByDescending(price => price.CapturedAt)
+            .ThenByDescending(price => price.Id)
             .Select(price => string.IsNullOrEmpty(price.CurrencyCode.Trim())
                 ? null
                 : price.CurrencyCode.Trim())
@@ -37,7 +40,10 @@ internal static class ProductMapper
 
     public static ProductDto ToDto(Product product)
     {
-        var latest = product.Prices.OrderByDescending(x => x.CapturedAt).FirstOrDefault();
+        var latest = product.Prices
+            .OrderByDescending(price => price.CapturedAt)
+            .ThenByDescending(price => price.Id)
+            .FirstOrDefault();
         var currency = latest?.CurrencyCode.Trim();
 
         return new ProductDto(

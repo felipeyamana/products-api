@@ -70,6 +70,7 @@ public sealed class MsSqlContainerFixture : IAsyncLifetime
         await using var dbContext = CreateDbContext();
         await dbContext.OrderItems.ExecuteDeleteAsync();
         await dbContext.Orders.ExecuteDeleteAsync();
+        await dbContext.CustomerFavorites.ExecuteDeleteAsync();
         await dbContext.Customers.ExecuteDeleteAsync();
         await dbContext.CartItems.ExecuteDeleteAsync();
         await dbContext.Carts.ExecuteDeleteAsync();

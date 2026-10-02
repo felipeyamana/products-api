@@ -8,6 +8,8 @@ public static class AuthorizationPolicies
     public const string AddressesWrite = "Addresses.Write";
     public const string CustomersRead = "Customers.Read";
     public const string CustomersWrite = "Customers.Write";
+    public const string FavoritesRead = "Favorites.Read";
+    public const string FavoritesWrite = "Favorites.Write";
     public const string OrdersRead = "Orders.Read";
     public const string OrdersWrite = "Orders.Write";
     public const string ProductsRead = "Products.Read";
