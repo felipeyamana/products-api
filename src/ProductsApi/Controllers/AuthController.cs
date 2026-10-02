@@ -19,7 +19,6 @@ namespace ProductsApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[EnableRateLimiting(RateLimitPolicies.Auth)]
 public class AuthController(
     IOptions<JwtOptions> jwtOptions,
     UserManager<ApplicationUser> users,
@@ -31,6 +30,7 @@ public class AuthController(
 
     [HttpPost("register")]
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.Auth)]
     [ProducesResponseType(typeof(AuthenticatedUserDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -62,6 +62,7 @@ public class AuthController(
 
     [HttpPost("login")]
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.Auth)]
     [ProducesResponseType(typeof(AuthenticatedUserDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
@@ -92,6 +93,7 @@ public class AuthController(
 
     [HttpPost("token")]
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.ServiceToken)]
     [ProducesResponseType(typeof(TokenResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]

@@ -25,13 +25,14 @@ public static class DependencyInjection
     {
         var jwtOptions = GetJwtOptions(configuration);
         var ecommerceJwtOptions = GetECommerceJwtOptions(configuration);
+        var rateLimitingOptions = GetRateLimitingOptions(configuration);
 
         services.AddProductsData(configuration);
         services.AddProductsIdentity();
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.AddProductsAuthentication(jwtOptions, ecommerceJwtOptions);
         services.AddProductsAuthorization();
-        services.AddProductsRateLimiting(jwtOptions.ApiKey);
+        services.AddProductsRateLimiting(jwtOptions.ApiKey, rateLimitingOptions);
         services.AddProductFeatures();
         services.AddProductCaching(configuration);
 
@@ -216,13 +217,24 @@ public static class DependencyInjection
 
     private static IServiceCollection AddProductsRateLimiting(
         this IServiceCollection services,
-        string apiKey)
+        string apiKey,
+        RateLimitingOptions rateLimitingOptions)
     {
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.OnRejected = async (context, cancellationToken) =>
             {
+                var logger = context.HttpContext.RequestServices
+                    .GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("ProductsApi.RateLimiting");
+                logger.LogWarning(
+                    "Rate limit exceeded for {Method} {Path}. Subject: {Subject}; remote IP: {RemoteIp}.",
+                    context.HttpContext.Request.Method,
+                    context.HttpContext.Request.Path,
+                    context.HttpContext.User.FindFirst("sub")?.Value ?? "anonymous",
+                    context.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown");
+
                 if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
                 {
                     context.HttpContext.Response.Headers.RetryAfter =
@@ -237,28 +249,32 @@ public static class DependencyInjection
             options.AddPolicy(RateLimitPolicies.Auth, httpContext =>
                 RateLimitPartition.GetFixedWindowLimiter(
                     GetAuthPartitionKey(httpContext, apiKey),
-                    _ => new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = 3,
-                        Window = TimeSpan.FromMinutes(1),
-                        QueueLimit = 0,
-                        AutoReplenishment = true
-                    }));
+                    _ => CreateFixedWindowOptions(rateLimitingOptions.Auth)));
+
+            options.AddPolicy(RateLimitPolicies.ServiceToken, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    GetIpPartitionKey(httpContext, "service-token"),
+                    _ => CreateFixedWindowOptions(rateLimitingOptions.ServiceToken)));
 
             options.AddPolicy(RateLimitPolicies.Products, httpContext =>
                 RateLimitPartition.GetFixedWindowLimiter(
                     GetUserPartitionKey(httpContext, "products"),
-                    _ => new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = 10,
-                        Window = TimeSpan.FromMinutes(1),
-                        QueueLimit = 0,
-                        AutoReplenishment = true
-                    }));
+                    _ => CreateFixedWindowOptions(rateLimitingOptions.Products)));
         });
 
         return services;
     }
+
+    private static FixedWindowRateLimiterOptions CreateFixedWindowOptions(
+        FixedWindowRateLimitOptions options) =>
+        new()
+        {
+            PermitLimit = options.PermitLimit,
+            Window = TimeSpan.FromSeconds(options.WindowSeconds),
+            QueueLimit = options.QueueLimit,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            AutoReplenishment = true
+        };
 
     private static IServiceCollection AddProductFeatures(this IServiceCollection services)
     {
@@ -350,6 +366,34 @@ public static class DependencyInjection
         }
 
         return options;
+    }
+
+    private static RateLimitingOptions GetRateLimitingOptions(IConfiguration configuration)
+    {
+        var options = new RateLimitingOptions();
+        configuration.GetSection(RateLimitingOptions.SectionName).Bind(options);
+
+        ValidateRateLimitWindow(nameof(options.Auth), options.Auth);
+        ValidateRateLimitWindow(nameof(options.ServiceToken), options.ServiceToken);
+        ValidateRateLimitWindow(nameof(options.Products), options.Products);
+
+        return options;
+    }
+
+    private static void ValidateRateLimitWindow(
+        string name,
+        FixedWindowRateLimitOptions? options)
+    {
+        if (options is null ||
+            options.PermitLimit <= 0 ||
+            options.WindowSeconds <= 0 ||
+            options.WindowSeconds > 86400 ||
+            options.QueueLimit < 0)
+        {
+            throw new InvalidOperationException(
+                $"RateLimiting:{name} must configure a positive PermitLimit, " +
+                "a WindowSeconds value from 1 through 86400, and a non-negative QueueLimit.");
+        }
     }
 
     private static ECommerceJwtOptions GetECommerceJwtOptions(IConfiguration configuration)
