@@ -8,4 +8,6 @@ public static class ProductConstraints
     public const int MaxExternalIdLength = 100;
     public const int MaxStoreNameLength = 150;
     public const int MaxSearchLength = 200;
+    public const int MaxBrandFilters = 20;
+    public const decimal MaxCatalogPrice = 9999999999999999.99m;
 }

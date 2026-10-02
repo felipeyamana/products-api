@@ -172,6 +172,22 @@ public static class DependencyInjection
                 .RequireAssertion(context => HasGuidSubject(context.User))
                 .RequireAssertion(context => HasScope(context.User, "customer:write")));
 
+            options.AddPolicy(AuthorizationPolicies.FavoritesRead, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("CustomerUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "favorites:read")));
+
+            options.AddPolicy(AuthorizationPolicies.FavoritesWrite, policy => policy
+                .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("CustomerUser")
+                .RequireClaim("sub")
+                .RequireAssertion(context => HasGuidSubject(context.User))
+                .RequireAssertion(context => HasScope(context.User, "favorites:write")));
+
             options.AddPolicy(AuthorizationPolicies.OrdersRead, policy => policy
                 .AddAuthenticationSchemes(ECommerceJwtOptions.AuthenticationScheme)
                 .RequireAuthenticatedUser()

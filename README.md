@@ -11,7 +11,7 @@ The project is intentionally small enough to read end-to-end, but includes enoug
 | Goal | How it shows up here |
 |------|----------------------|
 | **Product catalog API** | CRUD endpoints for products, categories, prices, attributes, and related catalog data |
-| **Persistent carts** | Authenticated, per-shopper carts with price snapshots, version checks, and current-price totals |
+| **Persistent customer commerce** | Authenticated carts, favorites, profiles, addresses, and orders |
 | **CQRS-style handlers** | Commands and queries are dispatched through `ICommandDispatcher` and `IQueryDispatcher` |
 | **SQL Server persistence** | Entity Framework Core, SQL Server provider, migrations, and design-time context factory |
 | **JWT + RBAC** | HMAC service tokens for catalog management and RSA-validated ECommerce shopper tokens for carts |
@@ -117,11 +117,12 @@ This preserves the main vertical-slice benefit—organizing business behavior ar
 - **CQRS-style product dispatching**: product controllers call command/query dispatchers instead of directly using EF Core.
 - **Category navigation data**: `GET /api/categories` returns categories alphabetically with parent IDs for hierarchy-aware clients.
 - **Full-text product search**: `GET /api/products?search=mechanical%20keyboard` searches product names, brands, and descriptions through SQL Server Full-Text Search.
+- **Composable catalog queries**: product listing filters category, subcategory, brands, current price, and minimum rating, with deterministic server-side sorting and pagination.
 - **Explicit HTTP contracts**: success and error response types are documented with `ProducesResponseType`.
 - **Role-based access control**:
   - Product read endpoints require an authenticated JWT.
   - Product write endpoints require `Admin` or `ProductManager`.
-  - Cart endpoints accept only ECommerce-issued RS256 tokens with the `CartUser` role and the appropriate `cart:read` or `cart:write` scope.
+  - Customer endpoints accept only ECommerce-issued RS256 tokens with the required role and operation-specific scopes.
 - **Cart concurrency control**: absolute quantities, cart-wide versions, and a per-shopper SQL application lock prevent duplicate or lost mutations.
 - **Cache-aside product caching**:
   - `GET /api/products`
@@ -230,6 +231,34 @@ GET http://localhost:8080/api/products
 Authorization: Bearer <accessToken>
 ```
 
+Catalog query parameters:
+
+| Parameter | Contract |
+|-----------|----------|
+| `search` | Full-text search, up to 200 characters |
+| `categoryId` | Positive category ID |
+| `subCategoryId` | Positive subcategory ID |
+| `brands` | Up to 20 brands; repeat the parameter or use comma-separated values |
+| `minPrice`, `maxPrice` | Inclusive range applied to the latest captured product price |
+| `minRating` | Inclusive minimum from 0 through 5 |
+| `sort` | `name-asc` (default), `name-desc`, `price-asc`, `price-desc`, `rating-desc`, or `newest` |
+| `page`, `pageSize` | Existing paged-response controls |
+
+For price and rating sorts, products without a corresponding value are placed last. Every sort includes a stable tie-breaker so pagination does not reshuffle equal-valued products.
+
+The paged response also includes `facets` with:
+
+- the minimum and maximum latest price available under the other active filters;
+- alphabetical brand values and matching product counts;
+- cumulative `4+`, `3+`, `2+`, and `1+` rating counts.
+
+Each facet excludes its own active filter while respecting the others. For example, selecting one brand does not remove the counts for other brands, while category, price, rating, and search constraints still apply. Products without a price or rating are excluded from that facet's values.
+
+```http
+GET /api/products?categoryId=4&brands=Acme&brands=Contoso&minPrice=50&maxPrice=500&minRating=4&sort=price-desc&page=1&pageSize=24
+Authorization: Bearer <accessToken>
+```
+
 Product endpoint authorization:
 
 | Endpoint type | Requirement |
@@ -251,10 +280,10 @@ ECommerce authenticates the shopper, signs a short-lived JWT with its RSA privat
 - exact `kid`
 - token lifetime
 - shopper ID in `sub`
-- `CartUser` role
-- `cart:read` or `cart:write` scope
+- the role required by the endpoint, such as `CartUser` or `CustomerUser`
+- the operation-specific scope required by the endpoint
 
-The private key must remain in ECommerce. Products API's `/api/auth/token` endpoint cannot issue cart tokens.
+The private key must remain in ECommerce. Products API's `/api/auth/token` endpoint cannot issue shopper tokens.
 
 Cart endpoints:
 
@@ -266,6 +295,16 @@ Cart endpoints:
 | `DELETE /api/cart` | `cart:write` | Clears the cart |
 
 Mutation requests include the cart version returned by the latest successful read or mutation. Stale versions return `409 Conflict`. Products API calculates current totals and preserves the original price/currency snapshot for change warnings. See [docs/cart-backend.md](docs/cart-backend.md) for the complete contract.
+
+Favorite endpoints use the `CustomerUser` role with `favorites:read` or `favorites:write`:
+
+| Endpoint | Required scope | Behavior |
+|----------|----------------|----------|
+| `GET /api/customers/me/favorites` | `favorites:read` | Returns the customer's saved products, newest first |
+| `PUT /api/customers/me/favorites/{productId}` | `favorites:write` | Idempotently saves a product |
+| `DELETE /api/customers/me/favorites/{productId}` | `favorites:write` | Idempotently removes a saved product |
+
+Customers can save up to 500 products. Deleting a customer or catalog product automatically removes its corresponding favorites.
 
 ---
 

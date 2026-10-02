@@ -90,6 +90,84 @@ public sealed class ProductHandlersTests(MsSqlContainerFixture fixture) : IAsync
     }
 
     [Fact]
+    public async Task GetPagedProducts_FiltersAndSortsByCatalogContract()
+    {
+        if (!fixture.IsEnabled)
+        {
+            return;
+        }
+
+        await using var dbContext = fixture.CreateDbContext();
+        var electronics = await CreateCategoryAsync(dbContext, "Electronics");
+        var audio = await CreateCategoryAsync(dbContext, "Audio", electronics.Id);
+        var books = await CreateCategoryAsync(dbContext, "Books");
+        var now = DateTime.UtcNow;
+        var products = new[]
+        {
+            CreateCatalogProduct("Budget", "Acme", electronics.Id, audio.Id, 4.7m, now.AddDays(-4), (50m, now)),
+            CreateCatalogProduct(
+                "Mid-range",
+                "Acme",
+                electronics.Id,
+                audio.Id,
+                4.6m,
+                now.AddDays(-3),
+                (300m, now.AddDays(-2)),
+                (100m, now)),
+            CreateCatalogProduct("Lower rated", "Contoso", electronics.Id, audio.Id, 3.5m, now.AddDays(-2), (120m, now)),
+            CreateCatalogProduct("Premium", "Contoso", electronics.Id, audio.Id, 4.9m, now.AddDays(-2), (150m, now)),
+            CreateCatalogProduct("Unpriced", "Acme", electronics.Id, audio.Id, 5m, now.AddDays(-1)),
+            CreateCatalogProduct("Other category", "Acme", books.Id, null, 4.9m, now, (125m, now))
+        };
+        await dbContext.Products.AddRangeAsync(products);
+        await dbContext.SaveChangesAsync();
+        var handler = new GetPagedProductsHandler(dbContext);
+
+        var filteredResult = await handler.Handle(
+            new GetPagedProductsQuery(
+                PageNumber: 1,
+                PageSize: 30,
+                CategoryId: electronics.Id,
+                SubCategoryId: audio.Id,
+                Brands: [" Acme, Contoso "],
+                MinPrice: 75m,
+                MaxPrice: 160m,
+                MinRating: 4.5m,
+                Sort: ProductCatalogSort.PriceDescending),
+            CancellationToken.None);
+
+        Assert.True(filteredResult.IsSuccess, filteredResult.Error);
+        Assert.Equal(["Premium", "Mid-range"], filteredResult.Value!.Items.Select(product => product.Name));
+        Assert.Equal([150m, 100m], filteredResult.Value.Items.Select(product => product.CurrentPrice));
+        Assert.Equal(50m, filteredResult.Value.Facets.MinPrice);
+        Assert.Equal(150m, filteredResult.Value.Facets.MaxPrice);
+        Assert.Equal(
+            [new ProductBrandFacetDto("Acme", 1), new ProductBrandFacetDto("Contoso", 1)],
+            filteredResult.Value.Facets.Brands);
+        Assert.Equal(
+            [
+                new ProductRatingFacetDto(4m, 2),
+                new ProductRatingFacetDto(3m, 3),
+                new ProductRatingFacetDto(2m, 3),
+                new ProductRatingFacetDto(1m, 3)
+            ],
+            filteredResult.Value.Facets.Ratings);
+
+        var priceAscendingResult = await handler.Handle(
+            new GetPagedProductsQuery(
+                1,
+                30,
+                CategoryId: electronics.Id,
+                Sort: ProductCatalogSort.PriceAscending),
+            CancellationToken.None);
+
+        Assert.True(priceAscendingResult.IsSuccess, priceAscendingResult.Error);
+        Assert.Equal(
+            ["Budget", "Mid-range", "Lower rated", "Premium", "Unpriced"],
+            priceAscendingResult.Value!.Items.Select(product => product.Name));
+    }
+
+    [Fact]
     public async Task GetPagedProducts_RejectsSearchOverMaximumLength()
     {
         if (!fixture.IsEnabled)
@@ -204,4 +282,31 @@ public sealed class ProductHandlersTests(MsSqlContainerFixture fixture) : IAsync
         await dbContext.SaveChangesAsync();
         return product;
     }
+
+    private static Product CreateCatalogProduct(
+        string name,
+        string brand,
+        int categoryId,
+        int? subCategoryId,
+        decimal averageRating,
+        DateTime createdAt,
+        params (decimal Price, DateTime CapturedAt)[] prices) =>
+        new()
+        {
+            Name = name,
+            Brand = brand,
+            CategoryId = categoryId,
+            SubCategoryId = subCategoryId,
+            AverageRating = averageRating,
+            CreatedAt = createdAt,
+            UpdatedAt = createdAt,
+            Prices = prices
+                .Select(price => new ProductPrice
+                {
+                    ActualPrice = price.Price,
+                    CurrencyCode = "USD",
+                    CapturedAt = price.CapturedAt
+                })
+                .ToList()
+        };
 }
