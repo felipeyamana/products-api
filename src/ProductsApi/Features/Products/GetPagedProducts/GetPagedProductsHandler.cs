@@ -176,12 +176,15 @@ public sealed class GetPagedProductsHandler(AppDbContext dbContext)
         var brandFacetProducts = ApplyRatingFilter(
             ApplyPriceFilter(baseProducts, query),
             query.MinRating);
-        var brandFacets = await brandFacetProducts
+        var brandCounts = await brandFacetProducts
             .Where(product => product.Brand != null && product.Brand != "")
             .GroupBy(product => product.Brand!)
-            .Select(group => new ProductBrandFacetDto(group.Key, group.Count()))
+            .Select(group => new { Brand = group.Key, Count = group.Count() })
             .OrderBy(facet => facet.Brand)
             .ToListAsync(cancellationToken);
+        var brandFacets = brandCounts
+            .Select(facet => new ProductBrandFacetDto(facet.Brand, facet.Count))
+            .ToArray();
 
         var priceFacetProducts = ApplyRatingFilter(
             ApplyBrandFilter(baseProducts, brands),
@@ -194,7 +197,11 @@ public sealed class GetPagedProductsHandler(AppDbContext dbContext)
                 .FirstOrDefault())
             .Where(price => price != null)
             .GroupBy(_ => 1)
-            .Select(group => new PriceRange(group.Min(), group.Max()))
+            .Select(group => new
+            {
+                MinPrice = group.Min(),
+                MaxPrice = group.Max()
+            })
             .SingleOrDefaultAsync(cancellationToken);
 
         var ratingFacetProducts = ApplyPriceFilter(
@@ -203,11 +210,13 @@ public sealed class GetPagedProductsHandler(AppDbContext dbContext)
         var ratingCounts = await ratingFacetProducts
             .Where(product => product.AverageRating != null)
             .GroupBy(_ => 1)
-            .Select(group => new RatingCounts(
-                group.Count(product => product.AverageRating >= 4m),
-                group.Count(product => product.AverageRating >= 3m),
-                group.Count(product => product.AverageRating >= 2m),
-                group.Count(product => product.AverageRating >= 1m)))
+            .Select(group => new
+            {
+                FourAndUp = group.Count(product => product.AverageRating >= 4m),
+                ThreeAndUp = group.Count(product => product.AverageRating >= 3m),
+                TwoAndUp = group.Count(product => product.AverageRating >= 2m),
+                OneAndUp = group.Count(product => product.AverageRating >= 1m)
+            })
             .SingleOrDefaultAsync(cancellationToken);
 
         return new ProductFacetsDto(
@@ -275,11 +284,4 @@ public sealed class GetPagedProductsHandler(AppDbContext dbContext)
         string[] Brands,
         string Sort);
 
-    private sealed record PriceRange(decimal? MinPrice, decimal? MaxPrice);
-
-    private sealed record RatingCounts(
-        int FourAndUp,
-        int ThreeAndUp,
-        int TwoAndUp,
-        int OneAndUp);
 }
