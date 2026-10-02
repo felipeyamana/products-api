@@ -378,6 +378,22 @@ Database migration on startup:
 Database__MigrateOnStartup=false
 ```
 
+Rate limiting (the values below are the built-in defaults and only need to be set when overriding them):
+
+```text
+RateLimiting__Auth__PermitLimit=10
+RateLimiting__Auth__WindowSeconds=60
+RateLimiting__Auth__QueueLimit=0
+RateLimiting__ServiceToken__PermitLimit=60
+RateLimiting__ServiceToken__WindowSeconds=60
+RateLimiting__ServiceToken__QueueLimit=0
+RateLimiting__Products__PermitLimit=1000
+RateLimiting__Products__WindowSeconds=60
+RateLimiting__Products__QueueLimit=0
+```
+
+`Auth` covers customer registration and login and is partitioned by the trusted forwarded client IP when available. `ServiceToken` covers `POST /api/auth/token` and is partitioned by the direct caller IP. `Products` covers product and category endpoints and is partitioned by the authenticated JWT subject, falling back to the direct caller IP for anonymous requests.
+
 Leave startup migrations disabled in production unless you deliberately want the API process to apply migrations.
 
 ---
