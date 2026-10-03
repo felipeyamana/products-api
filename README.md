@@ -436,6 +436,12 @@ AZURE_WEBAPP_NAME
 
 ---
 
+## Stripe checkout
+
+The API creates embedded Stripe Checkout Sessions for pending orders and verifies payment webhooks.
+See [local Stripe setup](docs/stripe-local-setup.md) for credentials, ecommerce
+integration, purchase testing, and current retry limits.
+
 ## Docker notes
 
 Build only the API image:

@@ -12,6 +12,7 @@ using ProductsApi.Common.Cqrs;
 using ProductsApi.Data;
 using ProductsApi.Data.Entities;
 using ProductsApi.Features.Cart;
+using ProductsApi.Payments;
 using ProductsApi.Security;
 using StackExchange.Redis;
 
@@ -35,6 +36,11 @@ public static class DependencyInjection
         services.AddProductsRateLimiting(jwtOptions.ApiKey, rateLimitingOptions);
         services.AddProductFeatures();
         services.AddProductCaching(configuration);
+        services.AddScoped<ProductsApi.Payments.OrderPaymentLock>();
+        services.AddScoped<ProductsApi.Payments.IStripeCheckoutGateway, ProductsApi.Payments.StripeCheckoutGateway>();
+        services.AddScoped<ProductsApi.Payments.IStripeWebhookProcessor, ProductsApi.Payments.StripeWebhookProcessor>();
+        services.AddSingleton(TimeProvider.System);
+        services.Configure<ProductsApi.Payments.StripeOptions>(configuration.GetSection("Stripe"));
 
         return services;
     }

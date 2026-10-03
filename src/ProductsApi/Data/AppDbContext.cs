@@ -14,6 +14,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
     public DbSet<CustomerFavorite> CustomerFavorites => Set<CustomerFavorite>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+    public DbSet<PaymentAttempt> PaymentAttempts => Set<PaymentAttempt>();
     public DbSet<Product> Products => Set<Product>();
 
     public DbSet<Category> Categories => Set<Category>();
@@ -46,6 +47,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         ConfigureCustomerFavorite(modelBuilder);
         ConfigureOrder(modelBuilder);
         ConfigureOrderItem(modelBuilder);
+        ConfigurePaymentAttempt(modelBuilder);
         ConfigureCart(modelBuilder);
         ConfigureCartItem(modelBuilder);
     }
@@ -201,6 +203,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         order.Property(x => x.Status)
             .HasConversion<int>()
             .HasDefaultValue(OrderStatus.Pending);
+        order.Property(x => x.PaymentStatus).HasConversion<int>()
+            .HasDefaultValue(OrderPaymentStatus.Pending);
         order.Property(x => x.CustomerEmail)
             .HasMaxLength(320)
             .IsRequired();
@@ -256,6 +260,58 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
             .HasFilter("[CheckoutCartVersion] IS NOT NULL");
         order.HasIndex(x => new { x.CustomerId, x.CreatedAtUtc });
         order.HasIndex(x => new { x.Status, x.CreatedAtUtc });
+    }
+
+    private static void ConfigurePaymentAttempt(ModelBuilder modelBuilder)
+    {
+        var attempt = modelBuilder.Entity<PaymentAttempt>();
+
+        attempt.ToTable("PaymentAttempts", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_PaymentAttempts_AttemptNumber",
+                "[AttemptNumber] > 0");
+            table.HasCheckConstraint(
+                "CK_PaymentAttempts_Amount",
+                "[Amount] > 0");
+        });
+        attempt.HasKey(x => x.Id);
+        attempt.Property(x => x.PublicId).ValueGeneratedNever();
+        attempt.Property(x => x.Provider).HasMaxLength(50).IsRequired();
+        attempt.Property(x => x.IdempotencyKey)
+            .HasMaxLength(255)
+            .IsRequired();
+        attempt.Property(x => x.ProviderSessionId).HasMaxLength(255);
+        attempt.Property(x => x.Status)
+            .HasConversion<int>()
+            .HasDefaultValue(PaymentAttemptStatus.Pending);
+        attempt.Property(x => x.Amount).HasPrecision(18, 2);
+        attempt.Property(x => x.CurrencyCode)
+            .HasMaxLength(3)
+            .IsFixedLength()
+            .IsRequired();
+        attempt.Property(x => x.FailureCode).HasMaxLength(100);
+        attempt.Property(x => x.CreatedAtUtc)
+            .HasDefaultValueSql("SYSUTCDATETIME()");
+        attempt.Property(x => x.UpdatedAtUtc)
+            .HasDefaultValueSql("SYSUTCDATETIME()");
+        attempt.Property(x => x.RowVersion).IsRowVersion();
+
+        attempt.HasOne(x => x.Order)
+            .WithMany(x => x.PaymentAttempts)
+            .HasForeignKey(x => x.OrderId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        attempt.HasIndex(x => x.PublicId).IsUnique();
+        attempt.HasIndex(x => x.IdempotencyKey).IsUnique();
+        attempt.HasIndex(x => new { x.OrderId, x.AttemptNumber }).IsUnique();
+        attempt.HasIndex(x => new { x.Provider, x.ProviderSessionId })
+            .IsUnique()
+            .HasFilter("[ProviderSessionId] IS NOT NULL");
+        attempt.HasIndex(x => x.OrderId)
+            .IsUnique()
+            .HasFilter("[CompletedAtUtc] IS NULL");
+        attempt.HasIndex(x => new { x.Status, x.CreatedAtUtc });
     }
 
     private static void ConfigureOrderItem(ModelBuilder modelBuilder)
