@@ -55,7 +55,9 @@ public sealed record OrderDetailDto(
     decimal GrandTotal,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc,
-    IReadOnlyList<OrderItemDto> Items);
+    IReadOnlyList<OrderItemDto> Items,
+    string PaymentStatus = "Pending",
+    DateTime? PaidAtUtc = null);
 
 public enum OrderFailureKind
 {
@@ -120,5 +122,7 @@ internal static class OrderMapper
                     item.UnitPrice,
                     item.DiscountAmount,
                     item.LineTotal))
-                .ToArray());
+                .ToArray(),
+            order.PaymentStatus.ToString(),
+            order.PaidAtUtc);
 }

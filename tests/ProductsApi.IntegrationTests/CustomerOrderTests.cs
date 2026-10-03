@@ -9,6 +9,12 @@ using ProductsApi.Data.Entities;
 using ProductsApi.Features.Customers.Shared;
 using ProductsApi.Features.Orders.Shared;
 using Xunit;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.AspNetCore.Hosting;
+using ProductsApi.Features.Orders.CreateCheckoutSession;
+using ProductsApi.Payments;
+using Stripe.Checkout;
 
 namespace ProductsApi.IntegrationTests;
 
@@ -114,9 +120,9 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
             (await retryResponse.Content.ReadFromJsonAsync<OrderDetailDto>())!;
         Assert.Equal(order.Id, retriedOrder.Id);
 
-        await using (var db = fixture.CreateDbContext())
+        await using (var cartDb = fixture.CreateDbContext())
         {
-            var cart = await db.Carts
+            var cart = await cartDb.Carts
                 .Include(item => item.Items)
                 .SingleAsync(item => item.UserId == data.UserId.ToString());
             Assert.Empty(cart.Items);
@@ -140,6 +146,152 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
             (await client.GetAsync($"/api/orders/{order.Id}")).StatusCode);
     }
 
+    [Fact]
+    public async Task StripeCheckout_ReusesSessionChecksOwnershipAndProcessesPaymentOnce()
+    {
+        if (!fixture.IsEnabled) return;
+        var gateway = new FakeStripeGateway
+        {
+            FailAfterCreateOnce = true
+        };
+        await using var factory = new AccountFactory(fixture.ConnectionString);
+        using var configuredFactory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IStripeCheckoutGateway>();
+                services.AddSingleton<IStripeCheckoutGateway>(gateway);
+                services.Configure<StripeOptions>(options =>
+                {
+                    options.ApiKey = "sk_test_fixture";
+                });
+            }));
+        using var client = configuredFactory.CreateClient();
+        Authenticate(client, Token(data.UserId, "orders:read orders:write", "OrderUser"));
+        var created = await client.PostAsJsonAsync("/api/orders",
+            new CreateOrderRequest(data.AddressId, data.CartVersion));
+        created.EnsureSuccessStatusCode();
+        var order = (await created.Content.ReadFromJsonAsync<OrderDetailDto>())!;
+        var path = $"/api/orders/{order.Id}/checkout";
+        var ambiguousResponse = await client.PostAsync(path, null);
+        Assert.Equal(
+            HttpStatusCode.BadGateway,
+            ambiguousResponse.StatusCode);
+
+        var response = await client.PostAsync(path, null);
+        response.EnsureSuccessStatusCode();
+        var session =
+            (await response.Content.ReadFromJsonAsync<CheckoutSessionDto>())!;
+
+        (await client.PostAsync(path, null)).EnsureSuccessStatusCode();
+
+        PaymentAttempt checkoutAttempt;
+        await using (var attemptDb = fixture.CreateDbContext())
+        {
+            checkoutAttempt = await attemptDb.PaymentAttempts
+                .AsNoTracking()
+                .SingleAsync(attempt => attempt.Order.PublicId == order.Id);
+        }
+
+        Assert.Equal(2, gateway.CreateCount);
+        Assert.Equal(5000, gateway.Current.AmountTotal);
+        Assert.Equal(
+            $"stripe-checkout-{checkoutAttempt.PublicId:D}",
+            Assert.Single(gateway.IdempotencyKeys.Distinct()));
+        Assert.Equal(
+            checkoutAttempt.PublicId.ToString("D"),
+            gateway.Current.Metadata["payment_attempt_id"]);
+        Assert.Equal(
+            PaymentAttemptStatus.CheckoutCreated,
+            checkoutAttempt.Status);
+        Assert.Equal(
+            session.SessionId,
+            checkoutAttempt.ProviderSessionId);
+        Assert.Equal("cs_test_fixture_secret_fixture", session.ClientSecret);
+        Assert.Equal("embedded_page", gateway.LastRequest!.UiMode);
+        Assert.Equal("never", gateway.LastRequest.RedirectOnCompletion);
+        Assert.Equal(
+            "card",
+            Assert.Single(gateway.LastRequest.AllowedPaymentMethodTypes));
+        Assert.Null(gateway.LastRequest.ReturnUrl);
+        Assert.Null(gateway.LastRequest.SuccessUrl);
+        Assert.Null(gateway.LastRequest.CancelUrl);
+
+        Authenticate(client, Token(data.OtherUserId, "orders:write", "OrderUser"));
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync(path, null)).StatusCode);
+
+        gateway.Current.Status = "complete";
+        gateway.Current.PaymentStatus = "paid";
+        var evt = new Stripe.Event
+        {
+            Id = "evt_fixture",
+            Type = "checkout.session.completed",
+            Data = new Stripe.EventData { Object = gateway.Current }
+        };
+        // Wrong amount must never confirm the order.
+        gateway.Current.AmountTotal = 1;
+        await using (var scope = configuredFactory.Services.CreateAsyncScope())
+            Assert.False(await scope.ServiceProvider.GetRequiredService<IStripeWebhookProcessor>()
+                .ProcessAsync(evt, default));
+        gateway.Current.AmountTotal = 5000;
+        for (var i = 0; i < 2; i++)
+        {
+            await using var scope = configuredFactory.Services.CreateAsyncScope();
+            Assert.True(await scope.ServiceProvider.GetRequiredService<IStripeWebhookProcessor>()
+                .ProcessAsync(evt, default));
+        }
+
+        Authenticate(client, Token(data.UserId, "orders:read orders:write", "OrderUser"));
+        var paid = (await client.GetFromJsonAsync<OrderDetailDto>($"/api/orders/{order.Id}"))!;
+        Assert.Equal("Paid", paid.PaymentStatus);
+        Assert.Equal("Confirmed", paid.Status);
+        Assert.NotNull(paid.PaidAtUtc);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsync(path, null)).StatusCode);
+        await using var db = fixture.CreateDbContext();
+        var storedOrder = await db.Orders.SingleAsync(
+            stored => stored.PublicId == order.Id);
+        var storedAttempt = await db.PaymentAttempts.SingleAsync(
+            stored => stored.PublicId == checkoutAttempt.PublicId);
+        Assert.Equal(paid.PaidAtUtc, storedOrder.PaidAtUtc);
+        Assert.Equal(PaymentAttemptStatus.Paid, storedAttempt.Status);
+        Assert.Equal(session.SessionId, storedAttempt.ProviderSessionId);
+        Assert.NotNull(storedAttempt.CompletedAtUtc);
+    }
+
+    private sealed class FakeStripeGateway : IStripeCheckoutGateway
+    {
+        public int CreateCount { get; private set; }
+        public bool FailAfterCreateOnce { get; set; }
+        public List<string> IdempotencyKeys { get; } = [];
+        public Session Current { get; } = new()
+        {
+            Id = "cs_test_fixture",
+            Status = "open",
+            PaymentStatus = "unpaid",
+            Mode = "payment",
+            ClientSecret = "cs_test_fixture_secret_fixture"
+        };
+        public SessionCreateOptions? LastRequest { get; private set; }
+
+        public Task<Session> GetAsync(string id, CancellationToken ct) => Task.FromResult(Current);
+        public Task<Session> CreateAsync(SessionCreateOptions request, string idempotencyKey, CancellationToken ct)
+        {
+            CreateCount++;
+            LastRequest = request;
+            IdempotencyKeys.Add(idempotencyKey);
+            Current.ClientReferenceId = request.ClientReferenceId;
+            Current.Metadata = request.Metadata;
+            Current.AmountTotal = request.LineItems.Single().PriceData.UnitAmount;
+            Current.Currency = request.LineItems.Single().PriceData.Currency;
+            if (FailAfterCreateOnce)
+            {
+                FailAfterCreateOnce = false;
+                throw new Stripe.StripeException(
+                    "Simulated lost Stripe response.");
+            }
+
+            return Task.FromResult(Current);
+        }
+    }
     private async Task<TestData> CreateTestDataAsync()
     {
         var userId = await CreateCustomerAsync();
