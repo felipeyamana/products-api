@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ProductsApi.Data;
 
@@ -11,9 +12,11 @@ using ProductsApi.Data;
 namespace ProductsApi.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261004173823_AddProductInventory")]
+    partial class AddProductInventory
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -487,38 +490,6 @@ namespace ProductsApi.Data.Migrations
                     b.HasIndex("CustomerId", "CreatedAtUtc");
 
                     b.ToTable("CustomerFavorites", (string)null);
-                });
-
-            modelBuilder.Entity("ProductsApi.Data.Entities.InventoryReservation", b =>
-                {
-                    b.Property<long>("OrderId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("ProductId")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasDefaultValueSql("SYSUTCDATETIME()");
-
-                    b.Property<int>("Quantity")
-                        .HasColumnType("int");
-
-                    b.Property<byte[]>("RowVersion")
-                        .IsConcurrencyToken()
-                        .IsRequired()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("rowversion");
-
-                    b.HasKey("OrderId", "ProductId");
-
-                    b.HasIndex("ProductId");
-
-                    b.ToTable("InventoryReservations", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_InventoryReservations_Quantity", "[Quantity] > 0");
-                        });
                 });
 
             modelBuilder.Entity("ProductsApi.Data.Entities.Order", b =>
@@ -1195,25 +1166,6 @@ namespace ProductsApi.Data.Migrations
                     b.Navigation("Product");
                 });
 
-            modelBuilder.Entity("ProductsApi.Data.Entities.InventoryReservation", b =>
-                {
-                    b.HasOne("ProductsApi.Data.Entities.Order", "Order")
-                        .WithMany("InventoryReservations")
-                        .HasForeignKey("OrderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("ProductsApi.Data.Entities.Product", "Product")
-                        .WithMany()
-                        .HasForeignKey("ProductId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Order");
-
-                    b.Navigation("Product");
-                });
-
             modelBuilder.Entity("ProductsApi.Data.Entities.Order", b =>
                 {
                     b.HasOne("ProductsApi.Data.Entities.Customer", "Customer")
@@ -1341,8 +1293,6 @@ namespace ProductsApi.Data.Migrations
 
             modelBuilder.Entity("ProductsApi.Data.Entities.Order", b =>
                 {
-                    b.Navigation("InventoryReservations");
-
                     b.Navigation("Items");
 
                     b.Navigation("PaymentAttempts");

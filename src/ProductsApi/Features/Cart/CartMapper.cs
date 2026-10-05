@@ -4,8 +4,10 @@ namespace ProductsApi.Features.Cart;
 
 public static class CartMapper
 {
-    private const string UnavailableReason =
+    private const string CatalogUnavailableReason =
         "Product is missing, inactive, or has no valid current price/currency.";
+    private const string StockUnavailableReason =
+        "The requested quantity is no longer in stock.";
 
     public static CartDto EmptyCart { get; } = new(Guid.Empty, [], 0, null, 0m);
 
@@ -43,13 +45,25 @@ public static class CartMapper
     public static string NormalizeCurrency(string currencyCode) =>
         currencyCode.Trim().ToUpperInvariant();
 
+    public static int GetAvailableStock(Product? product) =>
+        product?.Inventory?.Available ?? 0;
+
+    public static bool HasSufficientStock(Product? product, int quantity) =>
+        quantity > 0 && GetAvailableStock(product) >= quantity;
+
     private static CartItemDto ToItemDto(
         CartItem item, IReadOnlyDictionary<long, Product> products)
     {
         products.TryGetValue(item.ProductId, out var product);
         var price = GetCurrentPrice(product);
         var currentCurrency = price is null ? null : NormalizeCurrency(price.CurrencyCode);
-        var isAvailable = price is not null;
+        var hasStock = HasSufficientStock(product, item.Quantity);
+        var isAvailable = price is not null && hasStock;
+        var unavailableReason = price is null
+            ? CatalogUnavailableReason
+            : hasStock
+                ? null
+                : StockUnavailableReason;
 
         return new CartItemDto(
             item.ProductId,
@@ -62,8 +76,8 @@ public static class CartMapper
             isAvailable && (price!.ActualPrice != item.UnitPriceAtAddition ||
                             currentCurrency != item.CurrencyAtAddition),
             isAvailable,
-            isAvailable ? null : UnavailableReason,
-            price?.ActualPrice * item.Quantity,
+            unavailableReason,
+            isAvailable ? price!.ActualPrice * item.Quantity : null,
             item.CreatedAtUtc,
             item.UpdatedAtUtc);
     }

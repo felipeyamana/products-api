@@ -39,12 +39,12 @@ Read first. An untouched cart has version `00000000-0000-0000-0000-000000000000`
 - First addition saves `UnitPriceAtAddition`, `CurrencyAtAddition`, and timestamps. Quantity edits preserve the snapshot. Removing then re-adding takes a new snapshot.
 - Use the latest catalog price ordered by CapturedAt then ID. `ActualPrice` is the current selling price, matching the existing product contract; `DiscountPrice` is the existing list-price field, not a value to subtract or substitute.
 - Server-calculated decimal line totals use current prices. Compare current price/currency with the original snapshot through `priceChanged`; the snapshot does not lock a price or discount.
-- Reject additions/quantity updates for missing, inactive, unpriced, or invalid-currency products. Currency codes must be three ASCII letters. Zero prices are allowed, negative prices are not.
+- Reject additions/quantity updates for missing, inactive, unpriced, invalid-currency, or insufficient-stock products. Currency codes must be three ASCII letters. Zero prices are allowed, negative prices are not.
 - Enforce one currency, including original snapshots and available current prices. If a currency changes, remove the affected lines before re-adding in the desired currency.
-- Retain saved items when products disappear, become inactive, or lose valid pricing. Such lines are unavailable. No product FK intentionally, so deleting a product does not delete cart items.
+- Retain saved items when products disappear, become inactive, lose valid pricing, or no longer have enough available stock. Such lines are unavailable. No product FK intentionally, so deleting a product does not delete cart items.
 - Return a null subtotal if any item is unavailable or current currencies are mixed; never present a partial/mixed total as payable. Empty carts have subtotal zero.
 - Database failures fail the request, never return an empty cart or delete saved items.
-- Guest carts, stock reservations, frontend wiring, and checkout are deferred. Cart totals exclude shipping, tax, and discounts outside catalog pricing. Checkout must revalidate and require renewed confirmation after price changes, then create fixed order-price snapshots before payment.
+- Guest carts and frontend wiring are deferred. Cart totals exclude shipping, tax, and discounts outside catalog pricing. Order creation revalidates current stock, and Stripe checkout atomically reserves it. Successful payment consumes the reservation; the latest failed or expired payment attempt releases it for a later retry.
 
 ## Apply the migration
 

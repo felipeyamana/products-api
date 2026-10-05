@@ -7,6 +7,7 @@ using ProductsApi.Features.Products.GetPagedProducts;
 using ProductsApi.Features.Products.GetProductById;
 using ProductsApi.Features.Products.PatchProduct;
 using ProductsApi.Features.Products.ReplaceProduct;
+using ProductsApi.Features.Products.RandomizeProductStock;
 using ProductsApi.Features.Products.Shared;
 using ProductsApi.Security;
 using Microsoft.AspNetCore.Authorization;
@@ -240,6 +241,47 @@ public class ProductsController(
         }
 
         return NoContent();
+    }
+
+    /// <summary>
+    /// Temporary catalog bootstrap endpoint that assigns weighted random available
+    /// stock to a product batch ordered by product ID.
+    /// </summary>
+    [HttpPost("stock/randomize")]
+    [ProducesResponseType(typeof(RandomizeProductStockDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> RandomizeStock(
+        [FromBody] RandomizeProductStockRequest request,
+        CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException("Get rid of the forced exception and use this endpoint after ID 2967");
+
+        var result = await commandDispatcher.Dispatch<
+            RandomizeProductStockCommand,
+            Result<RandomizeProductStockDto>>(
+                new RandomizeProductStockCommand(request),
+                cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return BadRequest(new ErrorResponse(result.Error!));
+        }
+
+        if (_productCache is not null)
+        {
+            foreach (var product in result.Value!.Items)
+            {
+                await _productCache.InvalidateProductAsync(
+                    product.ProductId,
+                    cancellationToken);
+            }
+
+            await _productCache.InvalidateProductsAsync(cancellationToken);
+        }
+
+        return Ok(result.Value);
     }
 
     private IActionResult ToErrorResponse<T>(Result<T> result)

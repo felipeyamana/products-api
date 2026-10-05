@@ -4,6 +4,7 @@ using ProductsApi.Features.Products.CreateProduct;
 using ProductsApi.Features.Products.DeleteProduct;
 using ProductsApi.Features.Products.GetPagedProducts;
 using ProductsApi.Features.Products.GetProductById;
+using ProductsApi.Features.Products.RandomizeProductStock;
 using ProductsApi.Features.Products.Shared;
 using ProductsApi.Features.Categories.GetCategories;
 using Microsoft.EntityFrameworkCore;
@@ -249,6 +250,54 @@ public sealed class ProductHandlersTests(MsSqlContainerFixture fixture) : IAsync
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.False(await dbContext.Products.AnyAsync(x => x.Id == product.Id));
+    }
+
+    [Fact]
+    public async Task RandomizeProductStock_UsesStableBatchesAndCreatesInventory()
+    {
+        if (!fixture.IsEnabled)
+        {
+            return;
+        }
+
+        await using var dbContext = fixture.CreateDbContext();
+        var category = await CreateCategoryAsync(dbContext, "Inventory");
+        var products = new[]
+        {
+            await CreateProductAsync(dbContext, category.Id, "First"),
+            await CreateProductAsync(dbContext, category.Id, "Second"),
+            await CreateProductAsync(dbContext, category.Id, "Third")
+        };
+        var handler = new RandomizeProductStockHandler(dbContext);
+
+        var firstBatch = await handler.Handle(
+            new RandomizeProductStockCommand(
+                new RandomizeProductStockRequest(
+                    BatchSize: 2,
+                    MinimumAvailableStock: 12,
+                    MaximumAvailableStock: 12)),
+            CancellationToken.None);
+
+        Assert.True(firstBatch.IsSuccess, firstBatch.Error);
+        Assert.Equal(2, firstBatch.Value!.AssignedCount);
+        Assert.True(firstBatch.Value.HasMore);
+        Assert.Equal(products[1].Id, firstBatch.Value.NextAfterProductId);
+        Assert.All(firstBatch.Value.Items, item => Assert.Equal(12, item.Available));
+
+        var secondBatch = await handler.Handle(
+            new RandomizeProductStockCommand(
+                new RandomizeProductStockRequest(
+                    BatchSize: 2,
+                    AfterProductId: firstBatch.Value.NextAfterProductId,
+                    MinimumAvailableStock: 7,
+                    MaximumAvailableStock: 7)),
+            CancellationToken.None);
+
+        Assert.Single(secondBatch.Value!.Items);
+        Assert.False(secondBatch.Value.HasMore);
+        Assert.Equal(products[2].Id, secondBatch.Value.Items[0].ProductId);
+        Assert.Equal(7, secondBatch.Value.Items[0].Available);
+        Assert.Equal(3, await dbContext.ProductInventories.CountAsync());
     }
 
     private static async Task<Category> CreateCategoryAsync(

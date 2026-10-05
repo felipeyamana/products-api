@@ -270,6 +270,32 @@ Product endpoint authorization:
 | `PUT /api/products/{id}` | `Admin` or `ProductManager` role |
 | `PATCH /api/products/{id}` | `Admin` or `ProductManager` role |
 | `DELETE /api/products/{id}` | `Admin` or `ProductManager` role |
+| `POST /api/products/stock/randomize` | `Admin` or `ProductManager` role; temporary stock bootstrap |
+
+Product responses expose `availableStock` and `isInStock`. Inventory is stored
+separately from catalog data in `ProductInventories`; `availableStock` is calculated
+as `OnHand - Reserved` and is never persisted independently.
+
+The temporary randomizer processes products in ID order and returns
+`nextAfterProductId` plus `hasMore`, allowing a large catalog to be initialized in
+bounded requests. Generated values are weighted toward low and medium stock levels.
+
+```http
+POST /api/products/stock/randomize
+Authorization: Bearer <product-manager-token>
+Content-Type: application/json
+
+{
+  "batchSize": 100,
+  "afterProductId": null,
+  "minimumAvailableStock": 0,
+  "maximumAvailableStock": 500
+}
+```
+
+Pass the returned `nextAfterProductId` as `afterProductId` until `hasMore` is false.
+Calling the endpoint again for the same range replaces its available-stock values
+while preserving any reserved quantity.
 
 ### ECommerce shopper tokens
 
@@ -438,7 +464,7 @@ AZURE_WEBAPP_NAME
 
 ## Stripe checkout
 
-The API creates embedded Stripe Checkout Sessions for pending orders and verifies payment webhooks.
+The API creates embedded Stripe Checkout Sessions for pending orders and verifies payment webhooks. Checkout atomically reserves current inventory before creating a payment attempt; successful webhooks consume it, while the latest failed or expired attempt releases it. Conditional SQL updates and idempotent webhook transitions prevent overselling and double consumption.
 See [local Stripe setup](docs/stripe-local-setup.md) for credentials, ecommerce
 integration, purchase testing, and current retry limits.
 

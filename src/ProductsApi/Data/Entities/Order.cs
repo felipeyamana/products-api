@@ -30,6 +30,7 @@ public sealed class Order
     public Customer Customer { get; set; } = null!;
     public List<OrderItem> Items { get; set; } = [];
     public List<PaymentAttempt> PaymentAttempts { get; set; } = [];
+    public List<InventoryReservation> InventoryReservations { get; set; } = [];
 }
 
 public enum OrderStatus

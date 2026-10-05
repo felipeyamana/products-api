@@ -216,6 +216,15 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
         Assert.Null(gateway.LastRequest.SuccessUrl);
         Assert.Null(gateway.LastRequest.CancelUrl);
 
+        await using (var reservationDb = fixture.CreateDbContext())
+        {
+            var inventory = await reservationDb.ProductInventories.SingleAsync();
+            Assert.Equal(10, inventory.OnHand);
+            Assert.Equal(2, inventory.Reserved);
+            var reservation = await reservationDb.InventoryReservations.SingleAsync();
+            Assert.Equal(2, reservation.Quantity);
+        }
+
         Authenticate(client, Token(data.OtherUserId, "orders:write", "OrderUser"));
         Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync(path, null)).StatusCode);
 
@@ -255,6 +264,96 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
         Assert.Equal(PaymentAttemptStatus.Paid, storedAttempt.Status);
         Assert.Equal(session.SessionId, storedAttempt.ProviderSessionId);
         Assert.NotNull(storedAttempt.CompletedAtUtc);
+        var consumedInventory = await db.ProductInventories.SingleAsync();
+        Assert.Equal(8, consumedInventory.OnHand);
+        Assert.Equal(0, consumedInventory.Reserved);
+        Assert.Empty(await db.InventoryReservations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task StripeExpiration_ReleasesReservedStock()
+    {
+        if (!fixture.IsEnabled) return;
+
+        var gateway = new FakeStripeGateway();
+        await using var factory = new AccountFactory(fixture.ConnectionString);
+        using var configuredFactory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IStripeCheckoutGateway>();
+                services.AddSingleton<IStripeCheckoutGateway>(gateway);
+                services.Configure<StripeOptions>(options =>
+                    options.ApiKey = "sk_test_fixture");
+            }));
+        using var client = configuredFactory.CreateClient();
+        Authenticate(client, Token(data.UserId, "orders:write", "OrderUser"));
+        var created = await client.PostAsJsonAsync(
+            "/api/orders",
+            new CreateOrderRequest(data.AddressId, data.CartVersion));
+        created.EnsureSuccessStatusCode();
+        var order = (await created.Content.ReadFromJsonAsync<OrderDetailDto>())!;
+        (await client.PostAsync($"/api/orders/{order.Id}/checkout", null))
+            .EnsureSuccessStatusCode();
+
+        gateway.Current.Status = "expired";
+        gateway.Current.PaymentStatus = "unpaid";
+        var evt = new Stripe.Event
+        {
+            Id = "evt_expired_fixture",
+            Type = "checkout.session.expired",
+            Data = new Stripe.EventData { Object = gateway.Current }
+        };
+        await using (var scope = configuredFactory.Services.CreateAsyncScope())
+        {
+            Assert.True(await scope.ServiceProvider
+                .GetRequiredService<IStripeWebhookProcessor>()
+                .ProcessAsync(evt, default));
+        }
+
+        await using var db = fixture.CreateDbContext();
+        var inventory = await db.ProductInventories.SingleAsync();
+        Assert.Equal(10, inventory.OnHand);
+        Assert.Equal(0, inventory.Reserved);
+        Assert.Empty(await db.InventoryReservations.ToListAsync());
+        var storedOrder = await db.Orders.SingleAsync(
+            item => item.PublicId == order.Id);
+        Assert.Equal(OrderPaymentStatus.Expired, storedOrder.PaymentStatus);
+    }
+
+    [Fact]
+    public async Task StripeCheckout_RejectsOrderWhenStockChangedBeforeReservation()
+    {
+        if (!fixture.IsEnabled) return;
+
+        await using var factory = new AccountFactory(fixture.ConnectionString);
+        using var configuredFactory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+                services.Configure<StripeOptions>(options =>
+                    options.ApiKey = "sk_test_fixture")));
+        using var client = configuredFactory.CreateClient();
+        Authenticate(client, Token(data.UserId, "orders:write", "OrderUser"));
+        var created = await client.PostAsJsonAsync(
+            "/api/orders",
+            new CreateOrderRequest(data.AddressId, data.CartVersion));
+        created.EnsureSuccessStatusCode();
+        var order = (await created.Content.ReadFromJsonAsync<OrderDetailDto>())!;
+
+        await using (var stockDb = fixture.CreateDbContext())
+        {
+            var inventory = await stockDb.ProductInventories.SingleAsync();
+            inventory.OnHand = 1;
+            await stockDb.SaveChangesAsync();
+        }
+
+        var checkout = await client.PostAsync(
+            $"/api/orders/{order.Id}/checkout",
+            null);
+
+        Assert.Equal(HttpStatusCode.Conflict, checkout.StatusCode);
+        await using var db = fixture.CreateDbContext();
+        Assert.Empty(await db.InventoryReservations.ToListAsync());
+        Assert.Empty(await db.PaymentAttempts.ToListAsync());
+        Assert.Equal(0, (await db.ProductInventories.SingleAsync()).Reserved);
     }
 
     private sealed class FakeStripeGateway : IStripeCheckoutGateway
@@ -327,6 +426,7 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
             Name = "Order product",
             Category = category,
             ExternalProductId = $"order-{Guid.NewGuid():N}",
+            Inventory = new ProductInventory { OnHand = 10 },
             Prices =
             [
                 new ProductPrice

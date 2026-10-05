@@ -47,9 +47,11 @@ are not siblings. The token includes the local cart, address, and order roles/sc
 so it can be pasted into Swagger's **Authorize** dialog as well.
 
 1. Use authenticated `POST /api/orders` with `addressId` and `cartVersion`.
-   This validates current catalog prices, snapshots the order, and clears the cart.
+   This validates current catalog prices and stock, snapshots the order, and clears the cart.
 2. With the same customer token and `orders:write`, call
-   `POST /api/orders/{orderId}/checkout` with no body.
+   `POST /api/orders/{orderId}/checkout` with no body. This atomically reserves each
+   order item's stock before a payment attempt is created. A concurrent checkout that
+   consumed the remaining availability returns `409 Conflict` without opening Stripe.
 3. The API creates or reuses the order's active payment attempt and returns
    `orderId`, `sessionId`, and `clientSecret`.
 4. The ecommerce initializes Stripe.js with its publishable key, passes the client
@@ -88,10 +90,12 @@ An attempt without a recorded provider session is automatically retryable for
 23 hours. After that window the API requires manual reconciliation because
 Stripe only guarantees idempotency-key retention for a limited period.
 
-Open sessions are reused. Webhook failure or expiration completes the attempt,
-allowing the next checkout request to create a new numbered attempt for the same
-order. A paid attempt confirms the order. Repeated and stale events cannot undo
-a paid state or reset shipment progress.
+Open sessions and their stock reservations are reused. Webhook failure or expiration
+completes the latest attempt and releases its reservation, allowing the next checkout
+request to reserve current stock and create a new numbered attempt for the same order.
+A paid attempt atomically subtracts the reserved quantity from on-hand stock and
+confirms the order. Repeated and stale events cannot consume inventory twice, undo a
+paid state, release a newer attempt's reservation, or reset shipment progress.
 
 Verified events unrelated to this API, including default CLI fixtures without
 both `order_id` and `payment_attempt_id` metadata, return 200 without changing
@@ -126,6 +130,7 @@ deploying this version because the Products API no longer reads them.
 Unit tests cover signatures, monetary conversion, attempt transitions, stale
 events, and paid-state preservation. The SQL Server integration scenario covers
 ambiguous Stripe responses, idempotency-key reuse, ownership, amount mismatch,
-session persistence, embedded session options, and durable payment confirmation
-through a fake Stripe gateway. It requires Docker and `RUN_TESTCONTAINERS=true`;
+session persistence, embedded session options, insufficient-stock conflicts, stock
+reservation, terminal-event release, and exactly-once stock consumption through a
+fake Stripe gateway. It requires Docker and `RUN_TESTCONTAINERS=true`;
 no Stripe credentials are used.

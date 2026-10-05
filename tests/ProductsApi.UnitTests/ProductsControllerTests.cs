@@ -4,6 +4,7 @@ using ProductsApi.Common.Cqrs;
 using ProductsApi.Controllers;
 using ProductsApi.Features.Products.GetPagedProducts;
 using ProductsApi.Features.Products.GetProductById;
+using ProductsApi.Features.Products.RandomizeProductStock;
 using ProductsApi.Features.Products.ReplaceProduct;
 using ProductsApi.Features.Products.Shared;
 using Microsoft.AspNetCore.Mvc;
@@ -121,6 +122,19 @@ public class ProductsControllerTests
         Assert.Same(product, cache.Product);
     }
 
+    [Fact]
+    public async Task RandomizeStock_IsTemporarilyGuardedUntilCatalogBootstrapCatchesUp()
+    {
+        var controller = CreateController();
+
+        var exception = await Assert.ThrowsAsync<NotImplementedException>(() =>
+            controller.RandomizeStock(
+                new RandomizeProductStockRequest(BatchSize: 2),
+                CancellationToken.None));
+
+        Assert.Contains("ID 2967", exception.Message);
+    }
+
     private static ProductsController CreateController(
         Mock<IQueryDispatcher>? queryDispatcher = null,
         Mock<ICommandDispatcher>? commandDispatcher = null,
@@ -150,7 +164,9 @@ public class ProductsControllerTests
             DateTime.UtcNow,
             9.99m,
             14.99m,
-            "USD");
+            "USD",
+            12,
+            true);
 
     private sealed class TestProductCache : IProductCache
     {
@@ -159,6 +175,8 @@ public class ProductsControllerTests
         public ProductDto? Product { get; set; }
 
         public long? InvalidatedProductId { get; private set; }
+
+        public List<long> InvalidatedProductIds { get; } = [];
 
         public bool InvalidatedProducts { get; private set; }
 
@@ -183,6 +201,7 @@ public class ProductsControllerTests
         public Task InvalidateProductAsync(long id, CancellationToken cancellationToken)
         {
             InvalidatedProductId = id;
+            InvalidatedProductIds.Add(id);
             return Task.CompletedTask;
         }
 

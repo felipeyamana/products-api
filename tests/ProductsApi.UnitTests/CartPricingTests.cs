@@ -13,8 +13,12 @@ public class CartPricingTests
             new CartItem { ProductId = 1, Quantity = 1, UnitPriceAtAddition = 10, CurrencyAtAddition = "USD" },
             new CartItem { ProductId = 2, Quantity = 2, UnitPriceAtAddition = 10, CurrencyAtAddition = "USD" }] };
         var dto = CartMapper.ToDto(cart, new Dictionary<long, Product> {
-            [1] = new() { Prices = [new ProductPrice { ActualPrice = 10, CurrencyCode = "USD" }] },
-            [2] = new() { Prices = [new ProductPrice { ActualPrice = 10, CurrencyCode = "EUR" }] }
+            [1] = new() {
+                Inventory = new ProductInventory { OnHand = 10 },
+                Prices = [new ProductPrice { ActualPrice = 10, CurrencyCode = "USD" }] },
+            [2] = new() {
+                Inventory = new ProductInventory { OnHand = 10 },
+                Prices = [new ProductPrice { ActualPrice = 10, CurrencyCode = "EUR" }] }
         });
         Assert.Null(dto.Subtotal);
         Assert.Null(dto.Currency);

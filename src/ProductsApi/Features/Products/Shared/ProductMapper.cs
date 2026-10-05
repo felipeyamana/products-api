@@ -36,7 +36,12 @@ internal static class ProductMapper
             .Select(price => string.IsNullOrEmpty(price.CurrencyCode.Trim())
                 ? null
                 : price.CurrencyCode.Trim())
-            .FirstOrDefault());
+            .FirstOrDefault(),
+        product.Inventory == null
+            ? 0
+            : product.Inventory.OnHand - product.Inventory.Reserved,
+        product.Inventory != null &&
+        product.Inventory.OnHand - product.Inventory.Reserved > 0);
 
     public static ProductDto ToDto(Product product)
     {
@@ -63,7 +68,9 @@ internal static class ProductMapper
             UpdatedAt: product.UpdatedAt,
             CurrentPrice: latest?.ActualPrice,
             ListPrice: latest?.DiscountPrice,
-            PriceCurrencyCode: string.IsNullOrEmpty(currency) ? null : currency);
+            PriceCurrencyCode: string.IsNullOrEmpty(currency) ? null : currency,
+            AvailableStock: product.Inventory?.Available ?? 0,
+            IsInStock: product.Inventory?.Available > 0);
     }
 
     public static Product CreateFrom(CreateProductRequest request, DateTime utcNow)
@@ -82,6 +89,12 @@ internal static class ProductMapper
             IsActive = request.IsActive,
             CreatedAt = utcNow,
             UpdatedAt = utcNow,
+            Inventory = new ProductInventory
+            {
+                OnHand = 0,
+                Reserved = 0,
+                UpdatedAtUtc = utcNow
+            }
         };
 
         AppendPriceSnapshotIfProvided(product, request.Price, request.ListPrice, request.PriceStoreName, utcNow);

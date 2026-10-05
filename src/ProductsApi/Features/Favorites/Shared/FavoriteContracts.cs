@@ -80,7 +80,14 @@ internal static class FavoriteMapper
                     .Select(price => string.IsNullOrEmpty(price.CurrencyCode.Trim())
                         ? null
                         : price.CurrencyCode.Trim())
-                    .FirstOrDefault())));
+                    .FirstOrDefault(),
+                favorite.Product.Inventory == null
+                    ? 0
+                    : favorite.Product.Inventory.OnHand -
+                      favorite.Product.Inventory.Reserved,
+                favorite.Product.Inventory != null &&
+                favorite.Product.Inventory.OnHand -
+                favorite.Product.Inventory.Reserved > 0)));
 
     public static Task<CustomerFavoriteDto?> FindAsync(
         AppDbContext dbContext,

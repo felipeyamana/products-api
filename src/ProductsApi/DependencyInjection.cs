@@ -1,8 +1,3 @@
-using System.Globalization;
-using System.Reflection;
-using System.Security.Claims;
-using System.Text;
-using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -12,9 +7,14 @@ using ProductsApi.Common.Cqrs;
 using ProductsApi.Data;
 using ProductsApi.Data.Entities;
 using ProductsApi.Features.Cart;
-using ProductsApi.Payments;
+using ProductsApi.Features.Inventory;
 using ProductsApi.Security;
 using StackExchange.Redis;
+using System.Globalization;
+using System.Reflection;
+using System.Security.Claims;
+using System.Text;
+using System.Threading.RateLimiting;
 
 namespace ProductsApi;
 
@@ -36,11 +36,11 @@ public static class DependencyInjection
         services.AddProductsRateLimiting(jwtOptions.ApiKey, rateLimitingOptions);
         services.AddProductFeatures();
         services.AddProductCaching(configuration);
-        services.AddScoped<ProductsApi.Payments.OrderPaymentLock>();
-        services.AddScoped<ProductsApi.Payments.IStripeCheckoutGateway, ProductsApi.Payments.StripeCheckoutGateway>();
-        services.AddScoped<ProductsApi.Payments.IStripeWebhookProcessor, ProductsApi.Payments.StripeWebhookProcessor>();
+        services.AddScoped<Payments.OrderPaymentLock>();
+        services.AddScoped<Payments.IStripeCheckoutGateway, Payments.StripeCheckoutGateway>();
+        services.AddScoped<Payments.IStripeWebhookProcessor, Payments.StripeWebhookProcessor>();
         services.AddSingleton(TimeProvider.System);
-        services.Configure<ProductsApi.Payments.StripeOptions>(configuration.GetSection("Stripe"));
+        services.Configure<Payments.StripeOptions>(configuration.GetSection("Stripe"));
 
         return services;
     }
@@ -288,6 +288,7 @@ public static class DependencyInjection
         services.AddScoped<IQueryDispatcher, QueryDispatcher>();
         services.AddScoped<CartLockManager>();
         services.AddScoped<CartService>();
+        services.AddScoped<InventoryReservationService>();
 
         services.Scan(scan => scan
             .FromAssemblies(Assembly.GetExecutingAssembly())
