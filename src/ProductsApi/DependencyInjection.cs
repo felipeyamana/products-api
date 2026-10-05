@@ -41,6 +41,7 @@ public static class DependencyInjection
         services.AddScoped<Payments.IStripeWebhookProcessor, Payments.StripeWebhookProcessor>();
         services.AddSingleton(TimeProvider.System);
         services.Configure<Payments.StripeOptions>(configuration.GetSection("Stripe"));
+        services.Configure<InventoryOptions>(configuration.GetSection("Inventory"));
 
         return services;
     }
@@ -289,6 +290,7 @@ public static class DependencyInjection
         services.AddScoped<CartLockManager>();
         services.AddScoped<CartService>();
         services.AddScoped<InventoryReservationService>();
+        services.AddScoped<ProductAvailabilityService>();
 
         services.Scan(scan => scan
             .FromAssemblies(Assembly.GetExecutingAssembly())

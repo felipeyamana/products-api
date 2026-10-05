@@ -46,7 +46,13 @@ public static class CartMapper
         currencyCode.Trim().ToUpperInvariant();
 
     public static int GetAvailableStock(Product? product) =>
-        product?.Inventory?.Available ?? 0;
+        product?.Inventory is null
+            ? 0
+            : product.Inventory.OnHand -
+              product.InventoryReservations
+                  .Where(reservation =>
+                      reservation.ExpiresAtUtc > DateTime.UtcNow)
+                  .Sum(reservation => reservation.Quantity);
 
     public static bool HasSufficientStock(Product? product, int quantity) =>
         quantity > 0 && GetAvailableStock(product) >= quantity;

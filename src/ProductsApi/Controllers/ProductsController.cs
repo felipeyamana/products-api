@@ -9,6 +9,7 @@ using ProductsApi.Features.Products.PatchProduct;
 using ProductsApi.Features.Products.ReplaceProduct;
 using ProductsApi.Features.Products.RandomizeProductStock;
 using ProductsApi.Features.Products.Shared;
+using ProductsApi.Features.Inventory;
 using ProductsApi.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
@@ -22,7 +23,8 @@ namespace ProductsApi.Controllers;
 public class ProductsController(
     IQueryDispatcher queryDispatcher,
     ICommandDispatcher commandDispatcher,
-    IEnumerable<IProductCache> productCaches) : ControllerBase
+    IEnumerable<IProductCache> productCaches,
+    ProductAvailabilityService? productAvailability = null) : ControllerBase
 {
     private readonly IProductCache? _productCache = productCaches.FirstOrDefault();
 
@@ -60,7 +62,11 @@ public class ProductsController(
             : await _productCache.GetPagedProductsAsync(page, pageSize, cancellationToken);
         if (cachedProducts is not null)
         {
-            return Ok(cachedProducts);
+            return Ok(productAvailability is null
+                ? cachedProducts
+                : await productAvailability.RefreshAsync(
+                    cachedProducts,
+                    cancellationToken));
         }
 
         var result = await queryDispatcher.Dispatch<GetPagedProductsQuery, Result<PagedProductsDto>>(
@@ -102,7 +108,11 @@ public class ProductsController(
             : await _productCache.GetProductAsync(id, cancellationToken);
         if (cachedProduct is not null)
         {
-            return Ok(cachedProduct);
+            return Ok(productAvailability is null
+                ? cachedProduct
+                : await productAvailability.RefreshAsync(
+                    cachedProduct,
+                    cancellationToken));
         }
 
         var result = await queryDispatcher.Dispatch<GetProductByIdQuery, Result<ProductDto>>(

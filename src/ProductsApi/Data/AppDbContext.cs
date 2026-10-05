@@ -330,6 +330,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         reservation.HasKey(x => new { x.OrderId, x.ProductId });
         reservation.Property(x => x.CreatedAtUtc)
             .HasDefaultValueSql("SYSUTCDATETIME()");
+        reservation.Property(x => x.ExpiresAtUtc).IsRequired();
         reservation.Property(x => x.RowVersion).IsRowVersion();
 
         reservation.HasOne(x => x.Order)
@@ -337,10 +338,10 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
             .HasForeignKey(x => x.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
         reservation.HasOne(x => x.Product)
-            .WithMany()
+            .WithMany(x => x.InventoryReservations)
             .HasForeignKey(x => x.ProductId)
             .OnDelete(DeleteBehavior.Restrict);
-        reservation.HasIndex(x => x.ProductId);
+        reservation.HasIndex(x => new { x.ProductId, x.ExpiresAtUtc });
     }
 
     private static void ConfigureOrderItem(ModelBuilder modelBuilder)
@@ -459,14 +460,10 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         entity.ToTable("ProductInventories", table =>
         {
             table.HasCheckConstraint("CK_ProductInventories_OnHand", "[OnHand] >= 0");
-            table.HasCheckConstraint(
-                "CK_ProductInventories_Reserved",
-                "[Reserved] >= 0 AND [Reserved] <= [OnHand]");
         });
 
         entity.HasKey(x => x.ProductId);
         entity.Property(x => x.OnHand).HasDefaultValue(0);
-        entity.Property(x => x.Reserved).HasDefaultValue(0);
         entity.Property(x => x.UpdatedAtUtc).HasDefaultValueSql("SYSUTCDATETIME()");
         entity.Property(x => x.RowVersion).IsRowVersion();
 

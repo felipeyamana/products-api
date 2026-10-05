@@ -274,7 +274,9 @@ Product endpoint authorization:
 
 Product responses expose `availableStock` and `isInStock`. Inventory is stored
 separately from catalog data in `ProductInventories`; `availableStock` is calculated
-as `OnHand - Reserved` and is never persisted independently.
+as `OnHand` minus the quantities of inventory reservations whose `ExpiresAtUtc`
+is still in the future. The available value and the reserved aggregate are never
+persisted independently.
 
 The temporary randomizer processes products in ID order and returns
 `nextAfterProductId` plus `hasMore`, allowing a large catalog to be initialized in
@@ -464,7 +466,7 @@ AZURE_WEBAPP_NAME
 
 ## Stripe checkout
 
-The API creates embedded Stripe Checkout Sessions for pending orders and verifies payment webhooks. Checkout atomically reserves current inventory before creating a payment attempt; successful webhooks consume it, while the latest failed or expired attempt releases it. Conditional SQL updates and idempotent webhook transitions prevent overselling and double consumption.
+The API creates embedded Stripe Checkout Sessions for pending orders and verifies payment webhooks. Checkout atomically creates a time-limited inventory lease before creating a payment attempt. Available stock subtracts only unexpired leases, so abandoned checkout stock becomes available without a webhook or cleanup job. Stripe receives the same expiry timestamp to prevent payment through a stale session. Successful webhooks consume stock, while terminal webhooks remove reservation records. Conditional SQL updates and idempotent webhook transitions prevent overselling and double consumption.
 See [local Stripe setup](docs/stripe-local-setup.md) for credentials, ecommerce
 integration, purchase testing, and current retry limits.
 

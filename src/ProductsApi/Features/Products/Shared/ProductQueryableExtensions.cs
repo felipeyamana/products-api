@@ -11,5 +11,6 @@ internal static class ProductQueryableExtensions
             .Include(p => p.SubCategory)
             .Include(p => p.Prices)
             .Include(p => p.Inventory)
+            .Include(p => p.InventoryReservations)
             .AsSplitQuery();
 }

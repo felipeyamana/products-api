@@ -29,6 +29,7 @@ public sealed class RandomizeProductStockHandler(AppDbContext dbContext)
             .OrderBy(product => product.Id)
             .Take(request.BatchSize)
             .Include(product => product.Inventory)
+            .Include(product => product.InventoryReservations)
             .ToListAsync(cancellationToken);
 
         var utcNow = DateTime.UtcNow;
@@ -52,14 +53,17 @@ public sealed class RandomizeProductStockHandler(AppDbContext dbContext)
             var available = GenerateAvailableStock(
                 request.MinimumAvailableStock,
                 request.MaximumAvailableStock);
-            inventory.OnHand = checked(inventory.Reserved + available);
+            var reserved = product.InventoryReservations
+                .Where(reservation => reservation.ExpiresAtUtc > utcNow)
+                .Sum(reservation => reservation.Quantity);
+            inventory.OnHand = checked(reserved + available);
             inventory.UpdatedAtUtc = utcNow;
 
             randomized.Add(new RandomizedProductStockDto(
                 product.Id,
                 inventory.OnHand,
-                inventory.Reserved,
-                inventory.Available));
+                reserved,
+                available));
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);

@@ -105,6 +105,7 @@ public sealed class CreateCheckoutSessionHandler(
 
         var reservation = await inventoryReservations.EnsureReservedAsync(
             order,
+            allowExpiredReplacement: attempt is null,
             cancellationToken);
         if (!reservation.IsSuccess)
         {
@@ -132,7 +133,10 @@ public sealed class CreateCheckoutSessionHandler(
 
         await transaction.CommitAsync(cancellationToken);
         return AttemptPreparation.Prepared(
-            ToPreparedAttempt(order, attempt!),
+            ToPreparedAttempt(
+                order,
+                attempt!,
+                reservation.ExpiresAtUtc!.Value),
             reservation.ChangedProductIds);
     }
 
@@ -364,6 +368,7 @@ public sealed class CreateCheckoutSessionHandler(
             UiMode = "embedded_page",
             RedirectOnCompletion = "never",
             AllowedPaymentMethodTypes = ["card"],
+            ExpiresAt = attempt.ExpiresAtUtc,
             ClientReferenceId = attempt.OrderId.ToString("D"),
             Metadata = new Dictionary<string, string>
             {
@@ -393,7 +398,8 @@ public sealed class CreateCheckoutSessionHandler(
 
     private static PreparedAttempt ToPreparedAttempt(
         Order order,
-        PaymentAttempt attempt) =>
+        PaymentAttempt attempt,
+        DateTime expiresAtUtc) =>
         new(
             order.PublicId,
             attempt.PublicId,
@@ -401,7 +407,8 @@ public sealed class CreateCheckoutSessionHandler(
             attempt.ProviderSessionId,
             attempt.Amount,
             attempt.CurrencyCode,
-            attempt.CreatedAtUtc);
+            attempt.CreatedAtUtc,
+            expiresAtUtc);
 
     private static string CreateIdempotencyKey(Guid attemptId) =>
         $"stripe-checkout-{attemptId:D}";
@@ -413,7 +420,8 @@ public sealed class CreateCheckoutSessionHandler(
         string? ProviderSessionId,
         decimal Amount,
         string CurrencyCode,
-        DateTime CreatedAtUtc);
+        DateTime CreatedAtUtc,
+        DateTime ExpiresAtUtc);
 
     private sealed record AttemptPreparation(
         PreparedAttempt? Attempt,

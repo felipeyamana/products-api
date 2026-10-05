@@ -243,6 +243,7 @@ public sealed class CreateOrderHandler(
             .Where(product => ids.Contains(product.Id))
             .Include(product => product.Prices)
             .Include(product => product.Inventory)
+            .Include(product => product.InventoryReservations)
             .ToDictionaryAsync(product => product.Id, cancellationToken);
     }
 

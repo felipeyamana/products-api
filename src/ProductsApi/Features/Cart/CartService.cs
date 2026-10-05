@@ -173,6 +173,7 @@ public sealed class CartService(AppDbContext db, CartLockManager lockManager)
         return db.Products.AsNoTracking().Where(x => ids.Contains(x.Id))
             .Include(x => x.Prices)
             .Include(x => x.Inventory)
+            .Include(x => x.InventoryReservations)
             .ToDictionaryAsync(x => x.Id, cancellationToken);
     }
 

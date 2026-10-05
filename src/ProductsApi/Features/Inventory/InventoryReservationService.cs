@@ -1,13 +1,18 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ProductsApi.Data;
 using ProductsApi.Data.Entities;
 
 namespace ProductsApi.Features.Inventory;
 
-public sealed class InventoryReservationService(AppDbContext dbContext)
+public sealed class InventoryReservationService(
+    AppDbContext dbContext,
+    IOptions<InventoryOptions> options,
+    TimeProvider timeProvider)
 {
     public async Task<InventoryReservationResult> EnsureReservedAsync(
         Order order,
+        bool allowExpiredReplacement,
         CancellationToken cancellationToken)
     {
         EnsureTransaction();
@@ -17,6 +22,7 @@ public sealed class InventoryReservationService(AppDbContext dbContext)
             return InventoryReservationResult.Failure(quantities.Error);
         }
 
+        var utcNow = timeProvider.GetUtcNow().UtcDateTime;
         var existing = await dbContext.InventoryReservations
             .AsNoTracking()
             .Where(reservation => reservation.OrderId == order.Id)
@@ -29,32 +35,65 @@ public sealed class InventoryReservationService(AppDbContext dbContext)
                 existing.All(reservation =>
                     quantities.Items.TryGetValue(reservation.ProductId, out var quantity) &&
                     quantity == reservation.Quantity);
-
-            return matchesOrder
-                ? InventoryReservationResult.Success([])
-                : InventoryReservationResult.Failure(
+            if (!matchesOrder)
+            {
+                return InventoryReservationResult.Failure(
                     "The order has an inconsistent inventory reservation.");
+            }
+
+            var expiresAtUtc = existing.Min(reservation => reservation.ExpiresAtUtc);
+            if (expiresAtUtc > utcNow)
+            {
+                return InventoryReservationResult.Success([], expiresAtUtc);
+            }
+
+            if (!allowExpiredReplacement)
+            {
+                return InventoryReservationResult.Failure(
+                    "This checkout reservation expired. Refresh the order status before retrying.");
+            }
+
+            await dbContext.InventoryReservations
+                .Where(reservation => reservation.OrderId == order.Id)
+                .ExecuteDeleteAsync(cancellationToken);
         }
 
-        var utcNow = DateTime.UtcNow;
+        var reservationMinutes = options.Value.ReservationMinutes;
+        if (reservationMinutes is <
+                InventoryOptions.MinimumReservationMinutes or
+            > InventoryOptions.MaximumReservationMinutes)
+        {
+            return InventoryReservationResult.Failure(
+                $"Inventory:ReservationMinutes must be between " +
+                $"{InventoryOptions.MinimumReservationMinutes} and " +
+                $"{InventoryOptions.MaximumReservationMinutes}.");
+        }
+
+        var newExpiresAtUtc = utcNow.AddMinutes(reservationMinutes);
         var changedProductIds = new List<long>(quantities.Items!.Count);
 
         foreach (var item in quantities.Items.OrderBy(item => item.Key))
         {
             var productId = item.Key;
             var quantity = item.Value;
+
+            // Updating the inventory row takes a per-product update lock. A
+            // competing reservation waits, then re-evaluates the active lease
+            // sum after this transaction commits.
             var affected = await dbContext.ProductInventories
                 .Where(inventory =>
                     inventory.ProductId == productId &&
-                    inventory.OnHand - inventory.Reserved >= quantity)
+                    inventory.OnHand -
+                    (dbContext.InventoryReservations
+                        .Where(reservation =>
+                            reservation.ProductId == productId &&
+                            reservation.ExpiresAtUtc > utcNow)
+                        .Sum(reservation => (int?)reservation.Quantity) ?? 0) >=
+                    quantity)
                 .ExecuteUpdateAsync(
-                    setters => setters
-                        .SetProperty(
-                            inventory => inventory.Reserved,
-                            inventory => inventory.Reserved + quantity)
-                        .SetProperty(
-                            inventory => inventory.UpdatedAtUtc,
-                            utcNow),
+                    setters => setters.SetProperty(
+                        inventory => inventory.UpdatedAtUtc,
+                        utcNow),
                     cancellationToken);
 
             if (affected != 1)
@@ -68,12 +107,15 @@ public sealed class InventoryReservationService(AppDbContext dbContext)
                 OrderId = order.Id,
                 ProductId = productId,
                 Quantity = quantity,
-                CreatedAtUtc = utcNow
+                CreatedAtUtc = utcNow,
+                ExpiresAtUtc = newExpiresAtUtc
             });
             changedProductIds.Add(productId);
         }
 
-        return InventoryReservationResult.Success(changedProductIds);
+        return InventoryReservationResult.Success(
+            changedProductIds,
+            newExpiresAtUtc);
     }
 
     public async Task<IReadOnlyList<long>> ConsumeAsync(
@@ -91,22 +133,25 @@ public sealed class InventoryReservationService(AppDbContext dbContext)
             return await ConsumeWithoutReservationAsync(order, cancellationToken);
         }
 
-        var utcNow = DateTime.UtcNow;
+        var utcNow = timeProvider.GetUtcNow().UtcDateTime;
         foreach (var reservation in reservations)
         {
             var affected = await dbContext.ProductInventories
                 .Where(inventory =>
                     inventory.ProductId == reservation.ProductId &&
-                    inventory.OnHand >= reservation.Quantity &&
-                    inventory.Reserved >= reservation.Quantity)
+                    inventory.OnHand -
+                    (dbContext.InventoryReservations
+                        .Where(other =>
+                            other.ProductId == reservation.ProductId &&
+                            other.OrderId != order.Id &&
+                            other.ExpiresAtUtc > utcNow)
+                        .Sum(other => (int?)other.Quantity) ?? 0) >=
+                    reservation.Quantity)
                 .ExecuteUpdateAsync(
                     setters => setters
                         .SetProperty(
                             inventory => inventory.OnHand,
                             inventory => inventory.OnHand - reservation.Quantity)
-                        .SetProperty(
-                            inventory => inventory.Reserved,
-                            inventory => inventory.Reserved - reservation.Quantity)
                         .SetProperty(
                             inventory => inventory.UpdatedAtUtc,
                             utcNow),
@@ -115,7 +160,7 @@ public sealed class InventoryReservationService(AppDbContext dbContext)
             if (affected != 1)
             {
                 throw new InvalidOperationException(
-                    $"Reserved inventory for product {reservation.ProductId} is inconsistent.");
+                    $"Paid order {order.PublicId} cannot be allocated from current stock.");
             }
         }
 
@@ -133,30 +178,6 @@ public sealed class InventoryReservationService(AppDbContext dbContext)
             .OrderBy(reservation => reservation.ProductId)
             .ToListAsync(cancellationToken);
 
-        var utcNow = DateTime.UtcNow;
-        foreach (var reservation in reservations)
-        {
-            var affected = await dbContext.ProductInventories
-                .Where(inventory =>
-                    inventory.ProductId == reservation.ProductId &&
-                    inventory.Reserved >= reservation.Quantity)
-                .ExecuteUpdateAsync(
-                    setters => setters
-                        .SetProperty(
-                            inventory => inventory.Reserved,
-                            inventory => inventory.Reserved - reservation.Quantity)
-                        .SetProperty(
-                            inventory => inventory.UpdatedAtUtc,
-                            utcNow),
-                    cancellationToken);
-
-            if (affected != 1)
-            {
-                throw new InvalidOperationException(
-                    $"Reserved inventory for product {reservation.ProductId} is inconsistent.");
-            }
-        }
-
         dbContext.InventoryReservations.RemoveRange(reservations);
         return reservations.Select(reservation => reservation.ProductId).ToArray();
     }
@@ -171,7 +192,7 @@ public sealed class InventoryReservationService(AppDbContext dbContext)
             throw new InvalidOperationException(quantities.Error);
         }
 
-        var utcNow = DateTime.UtcNow;
+        var utcNow = timeProvider.GetUtcNow().UtcDateTime;
         foreach (var item in quantities.Items!.OrderBy(item => item.Key))
         {
             var productId = item.Key;
@@ -179,7 +200,13 @@ public sealed class InventoryReservationService(AppDbContext dbContext)
             var affected = await dbContext.ProductInventories
                 .Where(inventory =>
                     inventory.ProductId == productId &&
-                    inventory.OnHand - inventory.Reserved >= quantity)
+                    inventory.OnHand -
+                    (dbContext.InventoryReservations
+                        .Where(reservation =>
+                            reservation.ProductId == productId &&
+                            reservation.ExpiresAtUtc > utcNow)
+                        .Sum(reservation => (int?)reservation.Quantity) ?? 0) >=
+                    quantity)
                 .ExecuteUpdateAsync(
                     setters => setters
                         .SetProperty(
@@ -240,11 +267,14 @@ public sealed class InventoryReservationService(AppDbContext dbContext)
 public sealed record InventoryReservationResult(
     bool IsSuccess,
     IReadOnlyList<long> ChangedProductIds,
+    DateTime? ExpiresAtUtc,
     string? Error)
 {
-    public static InventoryReservationResult Success(IReadOnlyList<long> productIds) =>
-        new(true, productIds, null);
+    public static InventoryReservationResult Success(
+        IReadOnlyList<long> productIds,
+        DateTime expiresAtUtc) =>
+        new(true, productIds, expiresAtUtc, null);
 
     public static InventoryReservationResult Failure(string error) =>
-        new(false, [], error);
+        new(false, [], null, error);
 }

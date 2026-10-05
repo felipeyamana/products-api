@@ -39,4 +39,7 @@ public class Product
     public ICollection<ProductAttribute> Attributes { get; set; } = new List<ProductAttribute>();
 
     public ProductInventory? Inventory { get; set; }
+
+    public ICollection<InventoryReservation> InventoryReservations { get; set; } =
+        new List<InventoryReservation>();
 }

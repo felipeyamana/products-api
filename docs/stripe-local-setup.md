@@ -1,5 +1,8 @@
 # Local Stripe embedded checkout
 
+For the inventory lease, application-lock contract, production expiration policy,
+and flash-sale tradeoffs, see [checkout inventory safety](checkout-inventory-safety.md).
+
 Configure the Products API server credentials privately from the repository root:
 
 ```powershell
@@ -50,8 +53,9 @@ so it can be pasted into Swagger's **Authorize** dialog as well.
    This validates current catalog prices and stock, snapshots the order, and clears the cart.
 2. With the same customer token and `orders:write`, call
    `POST /api/orders/{orderId}/checkout` with no body. This atomically reserves each
-   order item's stock before a payment attempt is created. A concurrent checkout that
-   consumed the remaining availability returns `409 Conflict` without opening Stripe.
+   order item's stock with a time-limited lease before a payment attempt is created.
+   A concurrent checkout that consumed the remaining availability returns
+   `409 Conflict` without opening Stripe.
 3. The API creates or reuses the order's active payment attempt and returns
    `orderId`, `sessionId`, and `clientSecret`.
 4. The ecommerce initializes Stripe.js with its publishable key, passes the client
@@ -67,6 +71,14 @@ The API creates sessions with `ui_mode=embedded_page`,
 `redirect_on_completion=never`, and card as the only payment method. This keeps the
 browser on the ecommerce site. The checkout endpoint does not return a Stripe-hosted
 URL, and `Stripe:SuccessUrl` and `Stripe:CancelUrl` are no longer used.
+
+The reservation lifetime defaults to 30 minutes and is configured through
+`Inventory:ReservationMinutes` (30 through 1440). Every reservation stores
+`ExpiresAtUtc`, and Stripe receives that exact timestamp as `expires_at`. Available
+stock subtracts only reservations whose expiry is still in the future. Therefore an
+abandoned reservation stops affecting inventory at the database deadline without
+waiting for `checkout.session.expired` or a cleanup job. The webhook still records
+the payment attempt's terminal state and removes its no-longer-effective row.
 
 Treat the returned client secret as sensitive. Return it only to the authenticated
 customer who owns the order, do not log it, and do not store it in browser storage.
@@ -90,9 +102,10 @@ An attempt without a recorded provider session is automatically retryable for
 23 hours. After that window the API requires manual reconciliation because
 Stripe only guarantees idempotency-key retention for a limited period.
 
-Open sessions and their stock reservations are reused. Webhook failure or expiration
-completes the latest attempt and releases its reservation, allowing the next checkout
-request to reserve current stock and create a new numbered attempt for the same order.
+Open sessions and their unexpired stock reservations are reused with the original
+expiry, including idempotent retries. Webhook failure or expiration completes the
+latest attempt and removes its reservation row, allowing the next checkout request
+to reserve current stock and create a new numbered attempt for the same order.
 A paid attempt atomically subtracts the reserved quantity from on-hand stock and
 confirms the order. Repeated and stale events cannot consume inventory twice, undo a
 paid state, release a newer attempt's reservation, or reset shipment progress.
@@ -116,6 +129,8 @@ In Azure, the Products API needs these application settings:
 - `Stripe__ApiKey`: the environment's server secret key (`sk_test_...` or `sk_live_...`).
 - `Stripe__WebhookSigningSecret`: the signing secret for the matching deployed
   webhook destination (`whsec_...`).
+- `Inventory__ReservationMinutes`: optional checkout reservation lifetime, from
+  30 through 1440 minutes; defaults to 30.
 
 The ecommerce deployment needs the matching publishable key (`pk_test_...` or
 `pk_live_...`) in its public environment configuration. The publishable key is
@@ -131,6 +146,7 @@ Unit tests cover signatures, monetary conversion, attempt transitions, stale
 events, and paid-state preservation. The SQL Server integration scenario covers
 ambiguous Stripe responses, idempotency-key reuse, ownership, amount mismatch,
 session persistence, embedded session options, insufficient-stock conflicts, stock
-reservation, terminal-event release, and exactly-once stock consumption through a
-fake Stripe gateway. It requires Docker and `RUN_TESTCONTAINERS=true`;
+reservation, automatic lease expiry, concurrent final-unit contention,
+terminal-event cleanup, and exactly-once stock consumption through a fake Stripe
+gateway. It requires Docker and `RUN_TESTCONTAINERS=true`;
 no Stripe credentials are used.

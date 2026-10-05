@@ -11,8 +11,11 @@ using ProductsApi.Features.Orders.Shared;
 using Xunit;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Hosting;
+using ProductsApi.Features.Inventory;
 using ProductsApi.Features.Orders.CreateCheckoutSession;
+using ProductsApi.Features.Products.Shared;
 using ProductsApi.Payments;
 using Stripe.Checkout;
 
@@ -220,9 +223,13 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
         {
             var inventory = await reservationDb.ProductInventories.SingleAsync();
             Assert.Equal(10, inventory.OnHand);
-            Assert.Equal(2, inventory.Reserved);
             var reservation = await reservationDb.InventoryReservations.SingleAsync();
             Assert.Equal(2, reservation.Quantity);
+            Assert.Equal(reservation.ExpiresAtUtc, gateway.LastRequest.ExpiresAt);
+            Assert.InRange(
+                reservation.ExpiresAtUtc - reservation.CreatedAtUtc,
+                TimeSpan.FromMinutes(29),
+                TimeSpan.FromMinutes(31));
         }
 
         Authenticate(client, Token(data.OtherUserId, "orders:write", "OrderUser"));
@@ -266,7 +273,6 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
         Assert.NotNull(storedAttempt.CompletedAtUtc);
         var consumedInventory = await db.ProductInventories.SingleAsync();
         Assert.Equal(8, consumedInventory.OnHand);
-        Assert.Equal(0, consumedInventory.Reserved);
         Assert.Empty(await db.InventoryReservations.ToListAsync());
     }
 
@@ -313,11 +319,127 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
         await using var db = fixture.CreateDbContext();
         var inventory = await db.ProductInventories.SingleAsync();
         Assert.Equal(10, inventory.OnHand);
-        Assert.Equal(0, inventory.Reserved);
         Assert.Empty(await db.InventoryReservations.ToListAsync());
         var storedOrder = await db.Orders.SingleAsync(
             item => item.PublicId == order.Id);
         Assert.Equal(OrderPaymentStatus.Expired, storedOrder.PaymentStatus);
+    }
+
+    [Fact]
+    public async Task ExpiredReservation_NoLongerReducesAvailableStockWithoutWebhook()
+    {
+        if (!fixture.IsEnabled) return;
+
+        var gateway = new FakeStripeGateway();
+        await using var factory = new AccountFactory(fixture.ConnectionString);
+        using var configuredFactory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IStripeCheckoutGateway>();
+                services.AddSingleton<IStripeCheckoutGateway>(gateway);
+                services.Configure<StripeOptions>(options =>
+                    options.ApiKey = "sk_test_fixture");
+            }));
+        using var client = configuredFactory.CreateClient();
+        Authenticate(client, Token(data.UserId, "orders:write", "OrderUser"));
+        var created = await client.PostAsJsonAsync(
+            "/api/orders",
+            new CreateOrderRequest(data.AddressId, data.CartVersion));
+        created.EnsureSuccessStatusCode();
+        var order = (await created.Content.ReadFromJsonAsync<OrderDetailDto>())!;
+        (await client.PostAsync($"/api/orders/{order.Id}/checkout", null))
+            .EnsureSuccessStatusCode();
+
+        Authenticate(client, Token(data.UserId, "", "ProductReader"));
+        var reserved = await client.GetFromJsonAsync<ProductDto>(
+            $"/api/products/{data.ProductId}");
+        Assert.Equal(8, reserved!.AvailableStock);
+
+        await using (var db = fixture.CreateDbContext())
+        {
+            var reservation = await db.InventoryReservations.SingleAsync();
+            reservation.ExpiresAtUtc = DateTime.UtcNow.AddMinutes(-1);
+            await db.SaveChangesAsync();
+        }
+
+        var expired = await client.GetFromJsonAsync<ProductDto>(
+            $"/api/products/{data.ProductId}");
+        Assert.Equal(10, expired!.AvailableStock);
+        Assert.True(expired.IsInStock);
+        await using (var scope = configuredFactory.Services.CreateAsyncScope())
+        {
+            var refreshedCachedProduct = await scope.ServiceProvider
+                .GetRequiredService<ProductAvailabilityService>()
+                .RefreshAsync(reserved, default);
+            Assert.Equal(10, refreshedCachedProduct.AvailableStock);
+        }
+        await using var verificationDb = fixture.CreateDbContext();
+        Assert.Single(await verificationDb.InventoryReservations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ConcurrentReservations_CannotClaimTheSameFinalUnit()
+    {
+        if (!fixture.IsEnabled) return;
+
+        long firstOrderId;
+        long secondOrderId;
+        await using (var setupDb = fixture.CreateDbContext())
+        {
+            var product = await setupDb.Products
+                .Include(item => item.Inventory)
+                .SingleAsync();
+            product.Inventory!.OnHand = 1;
+
+            var customer = await setupDb.Customers.SingleAsync(
+                item => item.UserId == data.UserId);
+            var first = CreateReservationTestOrder(customer.Id, product.Id);
+            var second = CreateReservationTestOrder(customer.Id, product.Id);
+            setupDb.Orders.AddRange(first, second);
+            await setupDb.SaveChangesAsync();
+            firstOrderId = first.Id;
+            secondOrderId = second.Id;
+        }
+
+        async Task<InventoryReservationResult> ReserveAsync(long orderId)
+        {
+            await using var db = fixture.CreateDbContext();
+            await using var transaction = await db.Database.BeginTransactionAsync();
+            var order = await db.Orders
+                .Include(item => item.Items)
+                .SingleAsync(item => item.Id == orderId);
+            var service = new InventoryReservationService(
+                db,
+                Options.Create(new InventoryOptions
+                {
+                    ReservationMinutes = 30
+                }),
+                TimeProvider.System);
+            var result = await service.EnsureReservedAsync(
+                order,
+                allowExpiredReplacement: true,
+                default);
+
+            if (result.IsSuccess)
+            {
+                await db.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+
+            return result;
+        }
+
+        var results = await Task.WhenAll(
+            ReserveAsync(firstOrderId),
+            ReserveAsync(secondOrderId));
+
+        Assert.Single(results, result => result.IsSuccess);
+        Assert.Single(results, result => !result.IsSuccess);
+        await using var verificationDb = fixture.CreateDbContext();
+        var reservation = await verificationDb.InventoryReservations
+            .SingleAsync();
+        Assert.Equal(1, reservation.Quantity);
+        Assert.True(reservation.ExpiresAtUtc > DateTime.UtcNow);
     }
 
     [Fact]
@@ -353,7 +475,7 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
         await using var db = fixture.CreateDbContext();
         Assert.Empty(await db.InventoryReservations.ToListAsync());
         Assert.Empty(await db.PaymentAttempts.ToListAsync());
-        Assert.Equal(0, (await db.ProductInventories.SingleAsync()).Reserved);
+        Assert.Equal(1, (await db.ProductInventories.SingleAsync()).OnHand);
     }
 
     private sealed class FakeStripeGateway : IStripeCheckoutGateway
@@ -467,7 +589,44 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
             otherUserId,
             email,
             address.PublicId,
-            cartVersion);
+            cartVersion,
+            product.Id);
+    }
+
+    private static Order CreateReservationTestOrder(
+        long customerId,
+        long productId)
+    {
+        var utcNow = DateTime.UtcNow;
+        return new Order
+        {
+            CustomerId = customerId,
+            Status = OrderStatus.Pending,
+            PaymentStatus = OrderPaymentStatus.Pending,
+            CustomerEmail = $"reservation-{Guid.NewGuid():N}@example.com",
+            RecipientName = "Reservation test",
+            ShippingAddressLine1 = "100 Main Street",
+            ShippingCity = "Sao Paulo",
+            ShippingRegion = "SP",
+            ShippingPostalCode = "01000-000",
+            ShippingCountryCode = "BR",
+            CurrencyCode = "BRL",
+            Subtotal = 25m,
+            GrandTotal = 25m,
+            CreatedAtUtc = utcNow,
+            UpdatedAtUtc = utcNow,
+            Items =
+            [
+                new OrderItem
+                {
+                    ProductId = productId,
+                    ProductName = "Order product",
+                    Quantity = 1,
+                    UnitPrice = 25m,
+                    LineTotal = 25m
+                }
+            ]
+        };
     }
 
     private async Task<Guid> CreateCustomerAsync()
@@ -509,7 +668,8 @@ public sealed class CustomerOrderTests(MsSqlContainerFixture fixture) : IAsyncLi
         Guid OtherUserId,
         string Email,
         Guid AddressId,
-        Guid CartVersion);
+        Guid CartVersion,
+        long ProductId);
 
     private sealed class AccountFactory(string connectionString)
         : WebApplicationFactory<Program>

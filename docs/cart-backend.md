@@ -44,7 +44,7 @@ Read first. An untouched cart has version `00000000-0000-0000-0000-000000000000`
 - Retain saved items when products disappear, become inactive, lose valid pricing, or no longer have enough available stock. Such lines are unavailable. No product FK intentionally, so deleting a product does not delete cart items.
 - Return a null subtotal if any item is unavailable or current currencies are mixed; never present a partial/mixed total as payable. Empty carts have subtotal zero.
 - Database failures fail the request, never return an empty cart or delete saved items.
-- Guest carts and frontend wiring are deferred. Cart totals exclude shipping, tax, and discounts outside catalog pricing. Order creation revalidates current stock, and Stripe checkout atomically reserves it. Successful payment consumes the reservation; the latest failed or expired payment attempt releases it for a later retry.
+- Guest carts and frontend wiring are deferred. Cart totals exclude shipping, tax, and discounts outside catalog pricing. Order creation revalidates current stock, and Stripe checkout atomically creates a time-limited inventory lease. Only unexpired leases reduce availability, so abandoned checkout stock becomes available at `ExpiresAtUtc` without a webhook or cleanup job. Stripe receives the same expiry timestamp to prevent stale-session payment. Successful payment consumes stock; terminal webhooks remove reservation rows.
 
 ## Apply the migration
 

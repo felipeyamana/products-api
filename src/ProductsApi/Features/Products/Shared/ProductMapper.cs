@@ -5,7 +5,8 @@ namespace ProductsApi.Features.Products.Shared;
 
 internal static class ProductMapper
 {
-    public static readonly Expression<Func<Product, ProductDto>> ToDtoProjection = product => new ProductDto(
+    public static Expression<Func<Product, ProductDto>> ToDtoProjection(
+        DateTime utcNow) => product => new ProductDto(
         product.Id,
         product.Name,
         product.Brand,
@@ -39,12 +40,19 @@ internal static class ProductMapper
             .FirstOrDefault(),
         product.Inventory == null
             ? 0
-            : product.Inventory.OnHand - product.Inventory.Reserved,
+            : product.Inventory.OnHand -
+              (product.InventoryReservations
+                  .Where(reservation => reservation.ExpiresAtUtc > utcNow)
+                  .Sum(reservation => (int?)reservation.Quantity) ?? 0),
         product.Inventory != null &&
-        product.Inventory.OnHand - product.Inventory.Reserved > 0);
+        product.Inventory.OnHand -
+        (product.InventoryReservations
+            .Where(reservation => reservation.ExpiresAtUtc > utcNow)
+            .Sum(reservation => (int?)reservation.Quantity) ?? 0) > 0);
 
     public static ProductDto ToDto(Product product)
     {
+        var utcNow = DateTime.UtcNow;
         var latest = product.Prices
             .OrderByDescending(price => price.CapturedAt)
             .ThenByDescending(price => price.Id)
@@ -69,8 +77,8 @@ internal static class ProductMapper
             CurrentPrice: latest?.ActualPrice,
             ListPrice: latest?.DiscountPrice,
             PriceCurrencyCode: string.IsNullOrEmpty(currency) ? null : currency,
-            AvailableStock: product.Inventory?.Available ?? 0,
-            IsInStock: product.Inventory?.Available > 0);
+            AvailableStock: GetAvailableStock(product, utcNow),
+            IsInStock: GetAvailableStock(product, utcNow) > 0);
     }
 
     public static Product CreateFrom(CreateProductRequest request, DateTime utcNow)
@@ -92,7 +100,6 @@ internal static class ProductMapper
             Inventory = new ProductInventory
             {
                 OnHand = 0,
-                Reserved = 0,
                 UpdatedAtUtc = utcNow
             }
         };
@@ -100,6 +107,14 @@ internal static class ProductMapper
         AppendPriceSnapshotIfProvided(product, request.Price, request.ListPrice, request.PriceStoreName, utcNow);
         return product;
     }
+
+    private static int GetAvailableStock(Product product, DateTime utcNow) =>
+        product.Inventory is null
+            ? 0
+            : product.Inventory.OnHand -
+              product.InventoryReservations
+                  .Where(reservation => reservation.ExpiresAtUtc > utcNow)
+                  .Sum(reservation => reservation.Quantity);
 
     public static void ApplyFullReplace(Product product, UpdateProductRequest request, DateTime utcNow)
     {
