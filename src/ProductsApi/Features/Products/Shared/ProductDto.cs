@@ -17,4 +17,6 @@ public sealed record ProductDto(
     DateTime UpdatedAt,
     decimal? CurrentPrice,
     decimal? ListPrice,
-    string? PriceCurrencyCode);
+    string? PriceCurrencyCode,
+    int AvailableStock,
+    bool IsInStock);

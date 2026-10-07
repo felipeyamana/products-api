@@ -242,6 +242,8 @@ public sealed class CreateOrderHandler(
             .AsNoTracking()
             .Where(product => ids.Contains(product.Id))
             .Include(product => product.Prices)
+            .Include(product => product.Inventory)
+            .Include(product => product.InventoryReservations)
             .ToDictionaryAsync(product => product.Id, cancellationToken);
     }
 
@@ -251,7 +253,8 @@ public sealed class CreateOrderHandler(
         out PricedCartItem? pricedItem)
     {
         if (!products.TryGetValue(cartItem.ProductId, out var product) ||
-            CartMapper.GetCurrentPrice(product) is not { } price)
+            CartMapper.GetCurrentPrice(product) is not { } price ||
+            !CartMapper.HasSufficientStock(product, cartItem.Quantity))
         {
             pricedItem = null;
             return false;

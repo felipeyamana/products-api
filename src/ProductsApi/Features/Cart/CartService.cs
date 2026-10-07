@@ -49,6 +49,10 @@ public sealed class CartService(AppDbContext db, CartLockManager lockManager)
                 CartMapper.GetCurrentPrice(product) is not { } currentPrice)
                 return CartResult.BadRequest("Product is unavailable or has no valid current price/currency.");
 
+            if (!CartMapper.HasSufficientStock(product, request.Quantity))
+                return CartResult.BadRequest(
+                    $"Only {CartMapper.GetAvailableStock(product)} units are currently available.");
+
             var currency = CartMapper.NormalizeCurrency(currentPrice.CurrencyCode);
             if (!UsesSingleCurrency(cart, products, currency))
                 return CartResult.BadRequest(
@@ -167,7 +171,10 @@ public sealed class CartService(AppDbContext db, CartLockManager lockManager)
     {
         var ids = productIds.Distinct().ToArray();
         return db.Products.AsNoTracking().Where(x => ids.Contains(x.Id))
-            .Include(x => x.Prices).ToDictionaryAsync(x => x.Id, cancellationToken);
+            .Include(x => x.Prices)
+            .Include(x => x.Inventory)
+            .Include(x => x.InventoryReservations)
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
     }
 
     private async Task SaveCartAsync(Data.Entities.Cart cart, CancellationToken cancellationToken)

@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using ProductsApi.Caching;
 using ProductsApi.Data;
 using ProductsApi.Data.Entities;
+using ProductsApi.Features.Inventory;
 using Stripe;
 using Stripe.Checkout;
 
@@ -16,6 +18,8 @@ public interface IStripeWebhookProcessor
 public sealed class StripeWebhookProcessor(
     AppDbContext dbContext,
     OrderPaymentLock paymentLock,
+    InventoryReservationService inventoryReservations,
+    IEnumerable<IProductCache> productCaches,
     IStripeCheckoutGateway stripeCheckout,
     TimeProvider timeProvider,
     ILogger<StripeWebhookProcessor> logger)
@@ -111,6 +115,8 @@ public sealed class StripeWebhookProcessor(
             attempt.OrderId,
             cancellationToken);
         var utcNow = timeProvider.GetUtcNow().UtcDateTime;
+        var previousAttemptStatus = attempt.Status;
+        var orderWasPaid = attempt.Order.PaymentStatus == OrderPaymentStatus.Paid;
 
         LinkProviderSession(attempt, session.Id, utcNow);
 
@@ -126,8 +132,31 @@ public sealed class StripeWebhookProcessor(
             attempt.AttemptNumber == latestAttemptNumber,
             utcNow);
 
+        IReadOnlyList<long> changedProductIds = [];
+        if (!orderWasPaid &&
+            previousAttemptStatus != PaymentAttemptStatus.Paid &&
+            attempt.Status == PaymentAttemptStatus.Paid)
+        {
+            changedProductIds = await inventoryReservations.ConsumeAsync(
+                attempt.Order,
+                cancellationToken);
+        }
+        else if (attempt.AttemptNumber == latestAttemptNumber &&
+                 previousAttemptStatus is not
+                     (PaymentAttemptStatus.Failed or PaymentAttemptStatus.Expired) &&
+                 attempt.Status is
+                     PaymentAttemptStatus.Failed or PaymentAttemptStatus.Expired)
+        {
+            changedProductIds = await inventoryReservations.ReleaseAsync(
+                attempt.OrderId,
+                cancellationToken);
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        await productCaches.InvalidateStockAsync(
+            changedProductIds,
+            cancellationToken);
         return true;
     }
 
@@ -137,6 +166,7 @@ public sealed class StripeWebhookProcessor(
         CancellationToken cancellationToken) =>
         dbContext.PaymentAttempts
             .Include(attempt => attempt.Order)
+                .ThenInclude(order => order.Items)
             .SingleOrDefaultAsync(
                 attempt =>
                     attempt.PublicId == paymentAttemptId &&

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ProductsApi.Data;
 
@@ -11,9 +12,11 @@ using ProductsApi.Data;
 namespace ProductsApi.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261004233714_AddInventoryReservations")]
+    partial class AddInventoryReservations
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -502,9 +505,6 @@ namespace ProductsApi.Data.Migrations
                         .HasColumnType("datetime2")
                         .HasDefaultValueSql("SYSUTCDATETIME()");
 
-                    b.Property<DateTime>("ExpiresAtUtc")
-                        .HasColumnType("datetime2");
-
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
 
@@ -516,7 +516,7 @@ namespace ProductsApi.Data.Migrations
 
                     b.HasKey("OrderId", "ProductId");
 
-                    b.HasIndex("ProductId", "ExpiresAtUtc");
+                    b.HasIndex("ProductId");
 
                     b.ToTable("InventoryReservations", null, t =>
                         {
@@ -965,6 +965,11 @@ namespace ProductsApi.Data.Migrations
                         .HasColumnType("int")
                         .HasDefaultValue(0);
 
+                    b.Property<int>("Reserved")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .IsRequired()
@@ -981,6 +986,8 @@ namespace ProductsApi.Data.Migrations
                     b.ToTable("ProductInventories", null, t =>
                         {
                             t.HasCheckConstraint("CK_ProductInventories_OnHand", "[OnHand] >= 0");
+
+                            t.HasCheckConstraint("CK_ProductInventories_Reserved", "[Reserved] >= 0 AND [Reserved] <= [OnHand]");
                         });
                 });
 
@@ -1200,7 +1207,7 @@ namespace ProductsApi.Data.Migrations
                         .IsRequired();
 
                     b.HasOne("ProductsApi.Data.Entities.Product", "Product")
-                        .WithMany("InventoryReservations")
+                        .WithMany()
                         .HasForeignKey("ProductId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
@@ -1351,8 +1358,6 @@ namespace ProductsApi.Data.Migrations
                     b.Navigation("Images");
 
                     b.Navigation("Inventory");
-
-                    b.Navigation("InventoryReservations");
 
                     b.Navigation("Prices");
                 });

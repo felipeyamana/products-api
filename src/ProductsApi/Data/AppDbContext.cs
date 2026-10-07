@@ -15,7 +15,10 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<PaymentAttempt> PaymentAttempts => Set<PaymentAttempt>();
+    public DbSet<InventoryReservation> InventoryReservations => Set<InventoryReservation>();
     public DbSet<Product> Products => Set<Product>();
+
+    public DbSet<ProductInventory> ProductInventories => Set<ProductInventory>();
 
     public DbSet<Category> Categories => Set<Category>();
 
@@ -38,6 +41,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
 
         ConfigureCategory(modelBuilder);
         ConfigureProduct(modelBuilder);
+        ConfigureProductInventory(modelBuilder);
         ConfigureProductImage(modelBuilder);
         ConfigureProductPrice(modelBuilder);
         ConfigureProductAttribute(modelBuilder);
@@ -48,6 +52,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         ConfigureOrder(modelBuilder);
         ConfigureOrderItem(modelBuilder);
         ConfigurePaymentAttempt(modelBuilder);
+        ConfigureInventoryReservation(modelBuilder);
         ConfigureCart(modelBuilder);
         ConfigureCartItem(modelBuilder);
     }
@@ -314,6 +319,31 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         attempt.HasIndex(x => new { x.Status, x.CreatedAtUtc });
     }
 
+    private static void ConfigureInventoryReservation(ModelBuilder modelBuilder)
+    {
+        var reservation = modelBuilder.Entity<InventoryReservation>();
+
+        reservation.ToTable("InventoryReservations", table =>
+            table.HasCheckConstraint(
+                "CK_InventoryReservations_Quantity",
+                "[Quantity] > 0"));
+        reservation.HasKey(x => new { x.OrderId, x.ProductId });
+        reservation.Property(x => x.CreatedAtUtc)
+            .HasDefaultValueSql("SYSUTCDATETIME()");
+        reservation.Property(x => x.ExpiresAtUtc).IsRequired();
+        reservation.Property(x => x.RowVersion).IsRowVersion();
+
+        reservation.HasOne(x => x.Order)
+            .WithMany(x => x.InventoryReservations)
+            .HasForeignKey(x => x.OrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+        reservation.HasOne(x => x.Product)
+            .WithMany(x => x.InventoryReservations)
+            .HasForeignKey(x => x.ProductId)
+            .OnDelete(DeleteBehavior.Restrict);
+        reservation.HasIndex(x => new { x.ProductId, x.ExpiresAtUtc });
+    }
+
     private static void ConfigureOrderItem(ModelBuilder modelBuilder)
     {
         var item = modelBuilder.Entity<OrderItem>();
@@ -421,6 +451,26 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         entity.HasIndex(x => x.ExternalProductId)
             .IsUnique()
             .HasFilter("[ExternalProductId] IS NOT NULL");
+    }
+
+    private static void ConfigureProductInventory(ModelBuilder modelBuilder)
+    {
+        var entity = modelBuilder.Entity<ProductInventory>();
+
+        entity.ToTable("ProductInventories", table =>
+        {
+            table.HasCheckConstraint("CK_ProductInventories_OnHand", "[OnHand] >= 0");
+        });
+
+        entity.HasKey(x => x.ProductId);
+        entity.Property(x => x.OnHand).HasDefaultValue(0);
+        entity.Property(x => x.UpdatedAtUtc).HasDefaultValueSql("SYSUTCDATETIME()");
+        entity.Property(x => x.RowVersion).IsRowVersion();
+
+        entity.HasOne(x => x.Product)
+            .WithOne(x => x.Inventory)
+            .HasForeignKey<ProductInventory>(x => x.ProductId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 
     private static void ConfigureProductImage(ModelBuilder modelBuilder)

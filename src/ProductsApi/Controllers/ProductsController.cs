@@ -7,7 +7,9 @@ using ProductsApi.Features.Products.GetPagedProducts;
 using ProductsApi.Features.Products.GetProductById;
 using ProductsApi.Features.Products.PatchProduct;
 using ProductsApi.Features.Products.ReplaceProduct;
+using ProductsApi.Features.Products.RandomizeProductStock;
 using ProductsApi.Features.Products.Shared;
+using ProductsApi.Features.Inventory;
 using ProductsApi.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
@@ -21,7 +23,8 @@ namespace ProductsApi.Controllers;
 public class ProductsController(
     IQueryDispatcher queryDispatcher,
     ICommandDispatcher commandDispatcher,
-    IEnumerable<IProductCache> productCaches) : ControllerBase
+    IEnumerable<IProductCache> productCaches,
+    ProductAvailabilityService? productAvailability = null) : ControllerBase
 {
     private readonly IProductCache? _productCache = productCaches.FirstOrDefault();
 
@@ -59,7 +62,11 @@ public class ProductsController(
             : await _productCache.GetPagedProductsAsync(page, pageSize, cancellationToken);
         if (cachedProducts is not null)
         {
-            return Ok(cachedProducts);
+            return Ok(productAvailability is null
+                ? cachedProducts
+                : await productAvailability.RefreshAsync(
+                    cachedProducts,
+                    cancellationToken));
         }
 
         var result = await queryDispatcher.Dispatch<GetPagedProductsQuery, Result<PagedProductsDto>>(
@@ -101,7 +108,11 @@ public class ProductsController(
             : await _productCache.GetProductAsync(id, cancellationToken);
         if (cachedProduct is not null)
         {
-            return Ok(cachedProduct);
+            return Ok(productAvailability is null
+                ? cachedProduct
+                : await productAvailability.RefreshAsync(
+                    cachedProduct,
+                    cancellationToken));
         }
 
         var result = await queryDispatcher.Dispatch<GetProductByIdQuery, Result<ProductDto>>(
@@ -240,6 +251,47 @@ public class ProductsController(
         }
 
         return NoContent();
+    }
+
+    /// <summary>
+    /// Temporary catalog bootstrap endpoint that assigns weighted random available
+    /// stock to a product batch ordered by product ID.
+    /// </summary>
+    [HttpPost("stock/randomize")]
+    [ProducesResponseType(typeof(RandomizeProductStockDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> RandomizeStock(
+        [FromBody] RandomizeProductStockRequest request,
+        CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException("Get rid of the forced exception and use this endpoint after ID 2967");
+
+        var result = await commandDispatcher.Dispatch<
+            RandomizeProductStockCommand,
+            Result<RandomizeProductStockDto>>(
+                new RandomizeProductStockCommand(request),
+                cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return BadRequest(new ErrorResponse(result.Error!));
+        }
+
+        if (_productCache is not null)
+        {
+            foreach (var product in result.Value!.Items)
+            {
+                await _productCache.InvalidateProductAsync(
+                    product.ProductId,
+                    cancellationToken);
+            }
+
+            await _productCache.InvalidateProductsAsync(cancellationToken);
+        }
+
+        return Ok(result.Value);
     }
 
     private IActionResult ToErrorResponse<T>(Result<T> result)

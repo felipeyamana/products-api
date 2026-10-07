@@ -168,6 +168,8 @@ public sealed class CartTests(MsSqlContainerFixture fixture) : IAsyncLifetime
         Assert.Equal(400, (await Set("alice", ProductId(1), 100, Guid.Empty)).StatusCode);
         Assert.Equal(400, (await Set("alice", ProductId(1), 0, Guid.Empty)).StatusCode);
         Assert.Equal(400, (await Set("alice", long.MaxValue, 1, Guid.Empty)).StatusCode);
+        await SetCatalogStock(ProductId(1), 2);
+        Assert.Equal(400, (await Set("alice", ProductId(1), 3, Guid.Empty)).StatusCode);
 
         // A cart cannot combine products whose current currencies differ.
         var cart = await SetSuccessfully("alice", ProductId(1), 1, Guid.Empty);
@@ -256,6 +258,15 @@ public sealed class CartTests(MsSqlContainerFixture fixture) : IAsyncLifetime
         await db.SaveChangesAsync();
     }
 
+    private async Task SetCatalogStock(long productId, int onHand)
+    {
+        await using var db = fixture.CreateDbContext();
+        var inventory = await db.ProductInventories.SingleAsync(
+            item => item.ProductId == productId);
+        inventory.OnHand = onHand;
+        await db.SaveChangesAsync();
+    }
+
     private async Task DeleteProduct(long productId)
     {
         await using var db = fixture.CreateDbContext();
@@ -294,6 +305,7 @@ public sealed class CartTests(MsSqlContainerFixture fixture) : IAsyncLifetime
     {
         Name = $"Product {number}",
         Category = category,
+        Inventory = new ProductInventory { OnHand = 100 },
         Prices =
         [
             new ProductPrice

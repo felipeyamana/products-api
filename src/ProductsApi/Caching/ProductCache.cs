@@ -104,8 +104,8 @@ public sealed class ProductCache(IDistributedCache cache, ILogger<ProductCache> 
         }
     }
 
-    private static string GetProductKey(long id) => $"products:item:{id}";
+    private static string GetProductKey(long id) => $"products:item:v2:{id}";
 
     private static string GetPagedProductsKey(int page, int pageSize, string version) =>
-        $"products:list:v2:{version}:page:{page}:page-size:{pageSize}";
+        $"products:list:v3:{version}:page:{page}:page-size:{pageSize}";
 }

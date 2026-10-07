@@ -43,7 +43,7 @@ public sealed class GetPagedProductsHandler(AppDbContext dbContext)
         var items = await ordered
             .Skip((options.PageNumber - 1) * options.PageSize)
             .Take(options.PageSize)
-            .Select(ProductMapper.ToDtoProjection)
+            .Select(ProductMapper.ToDtoProjection(DateTime.UtcNow))
             .ToListAsync(cancellationToken);
 
         var totalPages = ProductPaging.TotalPages(totalCount, options.PageSize);

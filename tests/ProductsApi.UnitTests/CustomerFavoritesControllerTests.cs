@@ -120,5 +120,7 @@ public sealed class CustomerFavoritesControllerTests
                 DateTime.UtcNow,
                 49.99m,
                 59.99m,
-                "USD"));
+                "USD",
+                7,
+                true));
 }

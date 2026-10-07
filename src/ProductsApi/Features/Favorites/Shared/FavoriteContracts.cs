@@ -44,7 +44,8 @@ public sealed record FavoriteResult<T>(
 internal static class FavoriteMapper
 {
     public static IQueryable<CustomerFavoriteDto> ProjectToDto(
-        IQueryable<CustomerFavorite> favorites) =>
+        IQueryable<CustomerFavorite> favorites,
+        DateTime utcNow) =>
         favorites.Select(favorite => new CustomerFavoriteDto(
             favorite.CreatedAtUtc,
             new ProductDto(
@@ -80,17 +81,34 @@ internal static class FavoriteMapper
                     .Select(price => string.IsNullOrEmpty(price.CurrencyCode.Trim())
                         ? null
                         : price.CurrencyCode.Trim())
-                    .FirstOrDefault())));
+                    .FirstOrDefault(),
+                favorite.Product.Inventory == null
+                    ? 0
+                    : favorite.Product.Inventory.OnHand -
+                      (favorite.Product.InventoryReservations
+                          .Where(reservation =>
+                              reservation.ExpiresAtUtc > utcNow)
+                          .Sum(reservation =>
+                              (int?)reservation.Quantity) ?? 0),
+                favorite.Product.Inventory != null &&
+                favorite.Product.Inventory.OnHand -
+                (favorite.Product.InventoryReservations
+                    .Where(reservation =>
+                        reservation.ExpiresAtUtc > utcNow)
+                    .Sum(reservation =>
+                        (int?)reservation.Quantity) ?? 0) > 0)));
 
     public static Task<CustomerFavoriteDto?> FindAsync(
         AppDbContext dbContext,
         long customerId,
         long productId,
         CancellationToken cancellationToken) =>
-        ProjectToDto(dbContext.CustomerFavorites
-            .AsNoTracking()
-            .Where(favorite =>
-                favorite.CustomerId == customerId &&
-                favorite.ProductId == productId))
+        ProjectToDto(
+            dbContext.CustomerFavorites
+                .AsNoTracking()
+                .Where(favorite =>
+                    favorite.CustomerId == customerId &&
+                    favorite.ProductId == productId),
+            DateTime.UtcNow)
             .SingleOrDefaultAsync(cancellationToken);
 }

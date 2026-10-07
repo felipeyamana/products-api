@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ProductsApi.Caching;
 using ProductsApi.Common.Cqrs;
 using ProductsApi.Data;
 using ProductsApi.Data.Entities;
+using ProductsApi.Features.Inventory;
 using ProductsApi.Payments;
 using Stripe;
 using Stripe.Checkout;
@@ -12,6 +14,8 @@ namespace ProductsApi.Features.Orders.CreateCheckoutSession;
 public sealed class CreateCheckoutSessionHandler(
     AppDbContext dbContext,
     OrderPaymentLock paymentLock,
+    InventoryReservationService inventoryReservations,
+    IEnumerable<IProductCache> productCaches,
     IStripeCheckoutGateway stripeCheckout,
     IOptions<StripeOptions> options,
     TimeProvider timeProvider,
@@ -42,6 +46,10 @@ public sealed class CreateCheckoutSessionHandler(
         {
             return preparation.Error;
         }
+
+        await productCaches.InvalidateStockAsync(
+            preparation.ChangedProductIds,
+            cancellationToken);
 
         try
         {
@@ -95,6 +103,16 @@ public sealed class CreateCheckoutSessionHandler(
             order!.Id,
             cancellationToken);
 
+        var reservation = await inventoryReservations.EnsureReservedAsync(
+            order,
+            allowExpiredReplacement: attempt is null,
+            cancellationToken);
+        if (!reservation.IsSuccess)
+        {
+            return AttemptPreparation.Failed(
+                CreateCheckoutSessionResult.Conflict(reservation.Error!));
+        }
+
         if (attempt is null)
         {
             if (!TryGetAmount(order, out _))
@@ -108,9 +126,18 @@ public sealed class CreateCheckoutSessionHandler(
                 order,
                 cancellationToken);
         }
+        else if (reservation.ChangedProductIds.Count > 0)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
 
         await transaction.CommitAsync(cancellationToken);
-        return AttemptPreparation.Prepared(ToPreparedAttempt(order, attempt!));
+        return AttemptPreparation.Prepared(
+            ToPreparedAttempt(
+                order,
+                attempt!,
+                reservation.ExpiresAtUtc!.Value),
+            reservation.ChangedProductIds);
     }
 
     private async Task<CreateCheckoutSessionResult> OpenStripeSessionAsync(
@@ -169,11 +196,13 @@ public sealed class CreateCheckoutSessionHandler(
     private Task<Order?> LoadOrderAsync(
         CreateCheckoutSessionCommand command,
         CancellationToken cancellationToken) =>
-        dbContext.Orders.SingleOrDefaultAsync(
-            order =>
-                order.PublicId == command.OrderId &&
-                order.Customer.UserId == command.UserId,
-            cancellationToken);
+        dbContext.Orders
+            .Include(order => order.Items)
+            .SingleOrDefaultAsync(
+                order =>
+                    order.PublicId == command.OrderId &&
+                    order.Customer.UserId == command.UserId,
+                cancellationToken);
 
     private Task<PaymentAttempt?> LoadActiveAttemptAsync(
         long orderId,
@@ -339,6 +368,7 @@ public sealed class CreateCheckoutSessionHandler(
             UiMode = "embedded_page",
             RedirectOnCompletion = "never",
             AllowedPaymentMethodTypes = ["card"],
+            ExpiresAt = attempt.ExpiresAtUtc,
             ClientReferenceId = attempt.OrderId.ToString("D"),
             Metadata = new Dictionary<string, string>
             {
@@ -368,7 +398,8 @@ public sealed class CreateCheckoutSessionHandler(
 
     private static PreparedAttempt ToPreparedAttempt(
         Order order,
-        PaymentAttempt attempt) =>
+        PaymentAttempt attempt,
+        DateTime expiresAtUtc) =>
         new(
             order.PublicId,
             attempt.PublicId,
@@ -376,7 +407,8 @@ public sealed class CreateCheckoutSessionHandler(
             attempt.ProviderSessionId,
             attempt.Amount,
             attempt.CurrencyCode,
-            attempt.CreatedAtUtc);
+            attempt.CreatedAtUtc,
+            expiresAtUtc);
 
     private static string CreateIdempotencyKey(Guid attemptId) =>
         $"stripe-checkout-{attemptId:D}";
@@ -388,18 +420,21 @@ public sealed class CreateCheckoutSessionHandler(
         string? ProviderSessionId,
         decimal Amount,
         string CurrencyCode,
-        DateTime CreatedAtUtc);
+        DateTime CreatedAtUtc,
+        DateTime ExpiresAtUtc);
 
     private sealed record AttemptPreparation(
         PreparedAttempt? Attempt,
-        CreateCheckoutSessionResult? Error)
+        CreateCheckoutSessionResult? Error,
+        IReadOnlyList<long> ChangedProductIds)
     {
         public static AttemptPreparation Prepared(
-            PreparedAttempt attempt) =>
-            new(attempt, null);
+            PreparedAttempt attempt,
+            IReadOnlyList<long> changedProductIds) =>
+            new(attempt, null, changedProductIds);
 
         public static AttemptPreparation Failed(
             CreateCheckoutSessionResult error) =>
-            new(null, error);
+            new(null, error, []);
     }
 }

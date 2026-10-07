@@ -31,7 +31,8 @@ public sealed class GetCustomerFavoritesHandler(AppDbContext dbContext)
                     .Where(favorite => favorite.Customer.UserId == query.UserId)
                     .OrderByDescending(favorite => favorite.CreatedAtUtc)
                     .ThenBy(favorite => favorite.Product.Name)
-                    .ThenBy(favorite => favorite.ProductId))
+                    .ThenBy(favorite => favorite.ProductId),
+                DateTime.UtcNow)
             .ToListAsync(cancellationToken);
 
         return FavoriteResult<IReadOnlyList<CustomerFavoriteDto>>.Success(favorites);
